@@ -1,5 +1,7 @@
 #pragma once
 
+#ifdef __linux__
+
 #include <mysql/mysql.h>
 #include <iostream>
 #include <mutex>
@@ -43,3 +45,5 @@ private:
     std::mutex HeartBeat_mutex;
     std::thread HeartBeat_thread;
 };
+
+#endif

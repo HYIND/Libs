@@ -1,3 +1,5 @@
+#ifdef __linux__
+
 #include "Sig_Manager.h"
 #include "event.h"
 #include <assert.h>
@@ -18,3 +20,5 @@ void SigManager::DelPipe(int pipe)
     if (it != Pipes.end())
         Pipes.erase(it);
 }
+
+#endif

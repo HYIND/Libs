@@ -131,3 +131,21 @@ int Buffer::Seek(const int index)
     _pos = min(index, _length);
     return _pos;
 }
+
+void Buffer::ReSize(const int length)
+{
+    int min = min(length, 0);
+    if (length == _length)
+        return;
+
+    char *oribuf = _buf;
+    int oriLength = _length;
+
+    _buf = new char[length];
+    if (oribuf)
+        memcpy(_buf, oribuf, min(oriLength, length));
+    _length = length;
+    _pos = 0;
+
+    SAFE_DELETE_ARRAY(oribuf);
+}

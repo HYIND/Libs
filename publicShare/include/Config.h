@@ -11,6 +11,13 @@
  * \brief Generic configuration Class
  *
  */
+
+#ifdef _WIN32
+#define EXPORT_FUNC __declspec(dllexport)
+#elif __linux__
+#define EXPORT_FUNC
+#endif
+
 class Config
 {
     // Instance
@@ -31,18 +38,18 @@ protected:
     typedef std::map<std::string, std::string>::const_iterator mapci;
     // Methods
 public:
-    Config(std::string filename, std::string delimiter = "=", std::string comment = "#");
-    Config();
+    EXPORT_FUNC Config(std::string filename, std::string delimiter = "=", std::string comment = "#");
+    EXPORT_FUNC Config();
     template <class T>
-    T Read(const std::string &in_key) const; //!< Search for key and read value or optional default value, call as read<T>
+    EXPORT_FUNC T Read(const std::string &in_key) const; //!< Search for key and read value or optional default value, call as read<T>
     template <class T>
-    T Read(const std::string &in_key, const T &in_value) const;
+    EXPORT_FUNC T Read(const std::string &in_key, const T &in_value) const;
     template <class T>
-    bool ReadInto(T &out_var, const std::string &in_key) const;
+    EXPORT_FUNC bool ReadInto(T &out_var, const std::string &in_key) const;
     template <class T>
-    bool ReadInto(T &out_var, const std::string &in_key, const T &in_value) const;
-    bool FileExist(std::string filename);
-    void ReadFile(std::string filename, std::string delimiter = "=", std::string comment = "#");
+    EXPORT_FUNC bool ReadInto(T &out_var, const std::string &in_key, const T &in_value) const;
+    EXPORT_FUNC bool FileExist(std::string filename);
+    EXPORT_FUNC void ReadFile(std::string filename, std::string delimiter = "=", std::string comment = "#");
 
     // Check whether key exists in configuration
     bool KeyExists(const std::string &in_key) const;
@@ -98,87 +105,86 @@ public:
 
 /* static */
 template <class T>
-std::string Config::T_as_string(const T& t)
+std::string Config::T_as_string(const T &t)
 {
-	// Convert from a T to a string
-	// Type T must support << operator
-	std::ostringstream ost;
-	ost << t;
-	return ost.str();
+    // Convert from a T to a string
+    // Type T must support << operator
+    std::ostringstream ost;
+    ost << t;
+    return ost.str();
 }
 
 /* static */
 template <class T>
-T Config::string_as_T(const std::string& s)
+T Config::string_as_T(const std::string &s)
 {
-	// Convert from a string to a T
-	// Type T must support >> operator
-	T t;
-	std::istringstream ist(s);
-	ist >> t;
-	return t;
-}
-
-
-template <class T>
-T Config::Read(const std::string& key) const
-{
-	// Read the value corresponding to key
-	mapci p = m_Contents.find(key);
-	if (p == m_Contents.end())
-		throw Key_not_found(key);
-	return string_as_T<T>(p->second);
+    // Convert from a string to a T
+    // Type T must support >> operator
+    T t;
+    std::istringstream ist(s);
+    ist >> t;
+    return t;
 }
 
 template <class T>
-T Config::Read(const std::string& key, const T& value) const
+T Config::Read(const std::string &key) const
 {
-	// Return the value corresponding to key or given default value
-	// if key is not found
-	mapci p = m_Contents.find(key);
-	if (p == m_Contents.end())
-		return value;
-	return string_as_T<T>(p->second);
+    // Read the value corresponding to key
+    mapci p = m_Contents.find(key);
+    if (p == m_Contents.end())
+        throw Key_not_found(key);
+    return string_as_T<T>(p->second);
 }
 
 template <class T>
-bool Config::ReadInto(T& var, const std::string& key) const
+T Config::Read(const std::string &key, const T &value) const
 {
-	// Get the value corresponding to key and store in var
-	// Return true if key is found
-	// Otherwise leave var untouched
-	mapci p = m_Contents.find(key);
-	bool found = (p != m_Contents.end());
-	if (found)
-		var = string_as_T<T>(p->second);
-	return found;
+    // Return the value corresponding to key or given default value
+    // if key is not found
+    mapci p = m_Contents.find(key);
+    if (p == m_Contents.end())
+        return value;
+    return string_as_T<T>(p->second);
 }
 
 template <class T>
-bool Config::ReadInto(T& var, const std::string& key, const T& value) const
+bool Config::ReadInto(T &var, const std::string &key) const
 {
-	// Get the value corresponding to key and store in var
-	// Return true if key is found
-	// Otherwise set var to given default
-	mapci p = m_Contents.find(key);
-	bool found = (p != m_Contents.end());
-	if (found)
-		var = string_as_T<T>(p->second);
-	else
-		var = value;
-	return found;
+    // Get the value corresponding to key and store in var
+    // Return true if key is found
+    // Otherwise leave var untouched
+    mapci p = m_Contents.find(key);
+    bool found = (p != m_Contents.end());
+    if (found)
+        var = string_as_T<T>(p->second);
+    return found;
 }
 
 template <class T>
-void Config::Add(const std::string& in_key, const T& value)
+bool Config::ReadInto(T &var, const std::string &key, const T &value) const
 {
-	// Add a key with given value
-	std::string v = T_as_string(value);
-	std::string key = in_key;
-	Trim(key);
-	Trim(v);
-	m_Contents[key] = v;
-	return;
+    // Get the value corresponding to key and store in var
+    // Return true if key is found
+    // Otherwise set var to given default
+    mapci p = m_Contents.find(key);
+    bool found = (p != m_Contents.end());
+    if (found)
+        var = string_as_T<T>(p->second);
+    else
+        var = value;
+    return found;
+}
+
+template <class T>
+void Config::Add(const std::string &in_key, const T &value)
+{
+    // Add a key with given value
+    std::string v = T_as_string(value);
+    std::string key = in_key;
+    Trim(key);
+    Trim(v);
+    m_Contents[key] = v;
+    return;
 }
 
 #pragma endregion ParseIniFIle

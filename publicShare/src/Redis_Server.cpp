@@ -1,3 +1,5 @@
+#ifdef __linux__
+
 #include "Redis_Server.h"
 
 using namespace std;
@@ -547,3 +549,5 @@ int redistest()
     return 0;
 }
  */
+
+#endif

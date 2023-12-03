@@ -1,5 +1,7 @@
 #include "Mysql_Server.h"
 
+#ifdef __linux__
+
 using namespace std;
 
 Mysql_Server::Mysql_Server()
@@ -107,3 +109,5 @@ void Mysql_Server::HeartBeat_Task()
         HeartBeat_lck.release()->unlock();
     } while (!Stop);
 }
+
+#endif

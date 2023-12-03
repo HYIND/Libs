@@ -1,3 +1,5 @@
+#ifdef __linux__
+
 #include "RateLimiter.h"
 #include <unistd.h>
 #include <sys/time.h>
@@ -121,3 +123,5 @@ void RateLimiter::pass()
 {
     return mustGetToken();
 }
+
+#endif

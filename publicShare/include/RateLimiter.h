@@ -1,4 +1,6 @@
 #pragma once
+
+#ifdef __linux__
 #include <mutex>
 
 using namespace std;
@@ -26,3 +28,5 @@ private:
     long lastAddTokenTime; // 上次补充令牌的时间
     std::mutex mtx;        // 互斥锁
 };
+
+#endif

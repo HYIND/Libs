@@ -7,6 +7,12 @@
 #include <functional>
 #include <future>
 
+#ifdef _WIN32
+#define EXPORT_FUNC __declspec(dllexport)
+#elif __linux__
+#define EXPORT_FUNC
+#endif
+
 // 线程池
 class ThreadPool
 {
@@ -30,18 +36,18 @@ private:
     };
 
 public:
-    ThreadPool(const int threads_num = 4);
+    EXPORT_FUNC ThreadPool(const int threads_num = 4);
 
-    ThreadPool(const ThreadPool &) = delete;
-    ThreadPool(ThreadPool &&) = delete;
-    ThreadPool &operator=(const ThreadPool &) = delete;
-    ThreadPool &operator=(ThreadPool &&) = delete;
+    EXPORT_FUNC ThreadPool(const ThreadPool &) = delete;
+    EXPORT_FUNC ThreadPool(ThreadPool &&) = delete;
+    EXPORT_FUNC ThreadPool &operator=(const ThreadPool &) = delete;
+    EXPORT_FUNC ThreadPool &operator=(ThreadPool &&) = delete;
 
-    void start();
-    void stop();
+    EXPORT_FUNC void start();
+    EXPORT_FUNC void stop();
 
     template <typename F, typename... Args>
-    auto submit(F &&f, Args &&...args) -> std::future<decltype(f(args...))>
+    EXPORT_FUNC auto submit(F &&f, Args &&...args) -> std::future<decltype(f(args...))>
     {
         // 创建一个function
         std::function<decltype(f(args...))()> func = std::bind(std::forward<F>(f), std::forward<Args>(args)...); // 连接函数和参数定义，特殊函数类型，避免左右值错误
@@ -60,9 +66,8 @@ public:
         return task_ptr->get_future(); // 返回先前注册future
     }
 
-
     template <typename F, typename C, typename... Args>
-    auto submit(F &&f, C &&c, Args &&...args) -> std::future<decltype((c->*f)(args...))>
+    EXPORT_FUNC auto submit(F &&f, C &&c, Args &&...args) -> std::future<decltype((c->*f)(args...))>
     {
         // 创建一个function
         std::function<decltype((c->*f)(args...))()> func = std::bind(std::forward<F>(f), std::forward<C>(c), std::forward<Args>(args)...); // 连接函数和参数定义，特殊函数类型，避免左右值错误

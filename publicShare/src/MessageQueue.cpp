@@ -1,3 +1,5 @@
+#ifdef __linux__
+
 #include "MessageQueue.h"
 #include <iostream>
 #include <memory.h>
@@ -361,3 +363,5 @@ int Producer_MQ::Producer_Close()
     cout << "Producer_MQ退出" << endl;
     return ret;
 }
+
+#endif

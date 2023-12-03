@@ -1,5 +1,7 @@
 #pragma once
 
+#ifdef __linux__
+
 #include <vector>
 
 using namespace std;
@@ -24,3 +26,5 @@ public:
 private:
     vector<int> Pipes;
 };
+
+#endif

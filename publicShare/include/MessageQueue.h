@@ -1,5 +1,5 @@
 #pragma once
-
+#ifdef __linux__
 #include <string>
 #include <amqp.h>
 #include <amqp_tcp_socket.h>
@@ -52,3 +52,5 @@ public:
     int Producer_Publish(char *msg, size_t length);
     int Producer_Close();
 };
+
+#endif

@@ -1,5 +1,6 @@
 #pragma once
 
+#ifdef __linux__
 #include <sw/redis++/redis++.h>
 #include <iostream>
 #include <unordered_set>
@@ -50,3 +51,5 @@ private:
     sw::redis::Redis redis;
     bool connect = false;
 };
+
+#endif
