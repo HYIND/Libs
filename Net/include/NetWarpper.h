@@ -12,6 +12,7 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include "fmt/core.h"
+#include <atomic>
 #elif _WIN32
 #include <WinSock2.h>
 #include <WS2tcpip.h>
@@ -76,7 +77,7 @@ struct Package
 struct AwaitTask
 {
 	int seq = 0;
-	Buffer* respsonse;
+	Buffer *respsonse;
 	std::mutex _mtx;
 	std::condition_variable _cv;
 	bool isWait = false;
@@ -95,19 +96,19 @@ public:
 #endif
 	EXPORT_FUNC SocketType GetType();
 	EXPORT_FUNC sockaddr_in GetAddr();
-	EXPORT_FUNC char* GetIPAddr();
+	EXPORT_FUNC char *GetIPAddr();
 	EXPORT_FUNC uint16_t GetPort();
 	EXPORT_FUNC NetType GetNetType();
 	EXPORT_FUNC bool ValidSocket();
 
 public:
 #ifdef __linux__
-	EXPORT_FUNC virtual void OnRDHUP() = 0;         // 对端关闭事件，即断开连接
+	EXPORT_FUNC virtual void OnRDHUP() = 0;			// 对端关闭事件，即断开连接
 	EXPORT_FUNC virtual void OnEPOLLIN(int fd) = 0; // 可读事件
 #elif _WIN32
-	EXPORT_FUNC virtual void OnRDHUP() {};                             // 对端关闭事件，即断开连接
-	EXPORT_FUNC virtual void OnREAD(SOCKET socket, Buffer& buffer) {}; // 可读事件
-	EXPORT_FUNC virtual void OnACCEPT(SOCKET socket, sockaddr_in* addr) {};               // 可读事件
+	EXPORT_FUNC virtual void OnRDHUP(){};								   // 对端关闭事件，即断开连接
+	EXPORT_FUNC virtual void OnREAD(SOCKET socket, Buffer &buffer){};	   // 可读事件
+	EXPORT_FUNC virtual void OnACCEPT(SOCKET socket, sockaddr_in *addr){}; // 可读事件
 #endif
 
 protected:
@@ -128,22 +129,22 @@ class NetClient : public Net
 public:
 	EXPORT_FUNC NetClient(SocketType type = SocketType::TCP);
 	EXPORT_FUNC ~NetClient();
-	EXPORT_FUNC bool Connet(const std::string& IP, uint16_t Port);
+	EXPORT_FUNC bool Connet(const std::string &IP, uint16_t Port);
 #ifdef __linux__
-	EXPORT_FUNC void Apply(const int fd, const sockaddr_in& sockaddr, const SocketType type);
+	EXPORT_FUNC void Apply(const int fd, const sockaddr_in &sockaddr, const SocketType type);
 #elif _WIN32
-	EXPORT_FUNC void Apply(const SOCKET socket, const sockaddr_in& sockaddr, const SocketType type);
+	EXPORT_FUNC void Apply(const SOCKET socket, const sockaddr_in &sockaddr, const SocketType type);
 #endif
 	EXPORT_FUNC bool Release();
-	EXPORT_FUNC bool AsyncSend(const Buffer& buffer, int ack = -1);     // 异步发送，不关心返回结果
-	EXPORT_FUNC bool AwaitSend(const Buffer& buffer, Buffer& response); // 等待返回结果的发送，关心返回的结果
-	EXPORT_FUNC int Recv(Buffer& buffer, int length);
-	EXPORT_FUNC void BindMessageCallBack(std::function<void(NetClient*, Package*, Buffer* AckResponse)> callback);
-	EXPORT_FUNC void BindRDHUPCallBack(std::function<void(NetClient*)> callback);
+	EXPORT_FUNC bool AsyncSend(const Buffer &buffer, int ack = -1);		// 异步发送，不关心返回结果
+	EXPORT_FUNC bool AwaitSend(const Buffer &buffer, Buffer &response); // 等待返回结果的发送，关心返回的结果
+	EXPORT_FUNC int Recv(Buffer &buffer, int length);
+	EXPORT_FUNC void BindMessageCallBack(std::function<void(NetClient *, Package *, Buffer *AckResponse)> callback);
+	EXPORT_FUNC void BindRDHUPCallBack(std::function<void(NetClient *)> callback);
 
-	EXPORT_FUNC SafeQueue<Package*>& GetRecvData();
-	EXPORT_FUNC SafeQueue<Package*>& GetSendData();
-	EXPORT_FUNC std::mutex& GetSendMtx();
+	EXPORT_FUNC SafeQueue<Package *> &GetRecvData();
+	EXPORT_FUNC SafeQueue<Package *> &GetSendData();
+	EXPORT_FUNC std::mutex &GetSendMtx();
 
 public:
 #ifdef __linux__
@@ -151,18 +152,18 @@ public:
 	EXPORT_FUNC virtual void OnEPOLLIN(int fd);
 #elif _WIN32
 	EXPORT_FUNC virtual void OnRDHUP();
-	EXPORT_FUNC virtual void OnREAD(SOCKET socket, Buffer& buffer);
+	EXPORT_FUNC virtual void OnREAD(SOCKET socket, Buffer &buffer);
 #endif
 
 private:
-	std::atomic<int> seq = 0;
-	SafeQueue<Package*> _RecvDatas;
-	SafeQueue<Package*> _SendDatas;
-	std::map<int, AwaitTask*> _AwaitMap; // seq->AwaitTask
+	std::atomic<int> seq;
+	SafeQueue<Package *> _RecvDatas;
+	SafeQueue<Package *> _SendDatas;
+	std::map<int, AwaitTask *> _AwaitMap; // seq->AwaitTask
 
 private:
-	std::function<void(NetClient*, Package*, Buffer* response)> _callbackMessage;
-	std::function<void(NetClient*)> _callbackRDHUP;
+	std::function<void(NetClient *, Package *, Buffer *response)> _callbackMessage;
+	std::function<void(NetClient *)> _callbackRDHUP;
 	std::mutex _SendResMtx;
 };
 
@@ -173,10 +174,10 @@ class NetListener : public Net
 public:
 	EXPORT_FUNC NetListener(SocketType type = SocketType::TCP);
 	EXPORT_FUNC ~NetListener();
-	EXPORT_FUNC bool Listen(const std::string& IP, int Port);
+	EXPORT_FUNC bool Listen(const std::string &IP, int Port);
 	EXPORT_FUNC bool ReleaseListener();
 	EXPORT_FUNC bool ReleaseClients();
-	EXPORT_FUNC void BindAcceptCallBack(std::function<void(NetClient*)> callback);
+	EXPORT_FUNC void BindAcceptCallBack(std::function<void(NetClient *)> callback);
 
 public:
 #ifdef __linux__
@@ -184,14 +185,14 @@ public:
 	virtual void OnEPOLLIN(int fd);
 #elif _WIN32
 	virtual void OnRDHUP();
-	virtual void OnACCEPT(SOCKET socket, sockaddr_in* addr);
+	virtual void OnACCEPT(SOCKET socket, sockaddr_in *addr);
 #endif
 
 private:
-	std::map<int, NetClient*> clients;
+	std::map<int, NetClient *> clients;
 
 private:
-	std::function<void(NetClient*)> _callbackAccept;
+	std::function<void(NetClient *)> _callbackAccept;
 };
 
 // }

@@ -5,13 +5,12 @@ using namespace std;
 
 Buffer HeartBuffer("23388990");
 
-
 #ifdef __linux__
 void setnonblocking(int fd)
 {
 	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
 }
-void addfd(int epollfd, int fd, void* ptr, bool nonblock)
+void addfd(int epollfd, int fd, void *ptr, bool nonblock)
 {
 	epoll_event event;
 	memset(&event, 0, sizeof(event));
@@ -26,7 +25,7 @@ void delfd(int epollfd, int fd)
 {
 	epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, NULL);
 }
-void updateEvents(int epollfd, int fd, void* ptr, uint32_t events, int op)
+void updateEvents(int epollfd, int fd, void *ptr, uint32_t events, int op)
 {
 	struct epoll_event event;
 	memset(&event, 0, sizeof(event));
@@ -38,8 +37,8 @@ void updateEvents(int epollfd, int fd, void* ptr, uint32_t events, int op)
 }
 #elif _WIN32
 WSADATA _wsa;
-LPFN_ACCEPTEX pAcceptEx;				// AcceptEx函数指针
-LPFN_GETACCEPTEXSOCKADDRS pGetAcceptExSockaddrs;    // GetAcceptExSockaddrs函数指针
+LPFN_ACCEPTEX pAcceptEx;						 // AcceptEx函数指针
+LPFN_GETACCEPTEXSOCKADDRS pGetAcceptExSockaddrs; // GetAcceptExSockaddrs函数指针
 SOCKET NewClientSocket(SocketType type)
 {
 	int protocol = type == SocketType::UDP ? SOCK_DGRAM : SOCK_STREAM;
@@ -47,7 +46,6 @@ SOCKET NewClientSocket(SocketType type)
 	return _socket;
 }
 #endif
-
 
 void RunNetCoreLoop()
 {
@@ -65,10 +63,9 @@ void InitNetCore()
 #endif
 }
 
-
-bool IsHeartBeat(const Buffer& Buffer)
+bool IsHeartBeat(const Buffer &Buffer)
 {
-	return (Buffer.Length() == 8 && 0 == strncmp((char*)HeartBuffer.Data(), (char*)Buffer.Data(), 8));
+	return (Buffer.Length() == 8 && 0 == strncmp((char *)HeartBuffer.Data(), (char *)Buffer.Data(), 8));
 }
 
 NetCoreProcess::NetCoreProcess()
@@ -100,14 +97,13 @@ NetCoreProcess::NetCoreProcess()
 		NULL,
 		NULL);
 
-
 	_HIOCP = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, NULL, 0);
 #endif
 }
 
-NetCoreProcess* NetCoreProcess::Instance()
+NetCoreProcess *NetCoreProcess::Instance()
 {
-	static NetCoreProcess* m_Instance = new NetCoreProcess();
+	static NetCoreProcess *m_Instance = new NetCoreProcess();
 	return m_Instance;
 }
 int NetCoreProcess::Run()
@@ -124,7 +120,7 @@ int NetCoreProcess::Run()
 		// ThreadEnd();
 		return 1;
 	}
-	catch (const std::exception& e)
+	catch (const std::exception &e)
 	{
 		std::cerr << e.what() << '\n';
 		return -1;
@@ -136,14 +132,14 @@ bool NetCoreProcess::Running()
 }
 
 #ifdef __linux__
-bool NetCoreProcess::AddNetFd(Net* Con)
+bool NetCoreProcess::AddNetFd(Net *Con)
 {
 	cout << "AddNetFd fd :" << Con->GetFd() << endl;
 	if (Con->GetFd() <= 0)
 	{
 		return false;
 	}
-	NetCore_EpollData* data = new NetCore_EpollData();
+	NetCore_EpollData *data = new NetCore_EpollData();
 	data->fd = Con->GetFd();
 	data->Con = Con;
 	_EpollData.Insert(Con, data);
@@ -151,14 +147,14 @@ bool NetCoreProcess::AddNetFd(Net* Con)
 	addfd(_epoll, Con->GetFd(), data, true);
 	return true;
 }
-bool NetCoreProcess::DelNetFd(Net* Con)
+bool NetCoreProcess::DelNetFd(Net *Con)
 {
 	delfd(_epoll, Con->GetFd());
 	cout << "    _HeartBeatCount.Erase(Con);Start\n";
 	_HeartBeatCount.Erase(Con);
 	cout << "    _HeartBeatCount.Erase(Con);End\n";
 
-	NetCore_EpollData* data = nullptr;
+	NetCore_EpollData *data = nullptr;
 	if (_EpollData.Find(Con, data))
 	{
 		_EpollData.Erase(Con);
@@ -202,10 +198,10 @@ void NetCoreProcess::Loop()
 	close(_epoll);
 }
 
-int NetCoreProcess::EventProcess(epoll_event& event)
+int NetCoreProcess::EventProcess(epoll_event &event)
 {
-	int fd = ((NetCore_EpollData*)event.data.ptr)->fd;
-	Net* Con = ((NetCore_EpollData*)event.data.ptr)->Con;
+	int fd = ((NetCore_EpollData *)event.data.ptr)->fd;
+	Net *Con = ((NetCore_EpollData *)event.data.ptr)->Con;
 	uint32_t events = event.events;
 
 	/*     if ((event.data.fd == timefd) && (event.events & EPOLLIN))
@@ -216,30 +212,30 @@ int NetCoreProcess::EventProcess(epoll_event& event)
 			cout<<exp;
 			// addfd(_epoll,timefd,false);
 		} */
-		/*             if ((((NetCore_EpollData *)event.data.ptr)->fd == _pipe[0]) && (event.events & EPOLLIN))
+	/*             if ((((NetCore_EpollData *)event.data.ptr)->fd == _pipe[0]) && (event.events & EPOLLIN))
+				{
+					int sig;
+					char signals[1024];
+					int ret = recv(_pipe[0], signals, 1023, 0);
+					if (ret == -1 || ret == 0)
+						continue;
+					else
 					{
-						int sig;
-						char signals[1024];
-						int ret = recv(_pipe[0], signals, 1023, 0);
-						if (ret == -1 || ret == 0)
-							continue;
-						else
+						for (int i = 0; i < ret; i++)
 						{
-							for (int i = 0; i < ret; i++)
+							switch (signals[i])
 							{
-								switch (signals[i])
-								{
-								case SIGINT:
-								case SIGTERM:
-								{
-									stop = true;
-									break;
-								}
-								}
+							case SIGINT:
+							case SIGTERM:
+							{
+								stop = true;
+								break;
+							}
 							}
 						}
 					}
-					else  */
+				}
+				else  */
 	if (events & EPOLLRDHUP)
 	{
 		DelNetFd(Con);
@@ -257,7 +253,7 @@ int NetCoreProcess::EventProcess(epoll_event& event)
 			}
 			Con->OnEPOLLIN(fd);
 		}
-		catch (const std::exception& e)
+		catch (const std::exception &e)
 		{
 			cout << "_HeartBeatCount.Size :" << _HeartBeatCount.Size() << endl;
 			std::cerr << e.what() << '\n';
@@ -266,7 +262,7 @@ int NetCoreProcess::EventProcess(epoll_event& event)
 	else if (events & EPOLLOUT)
 	{
 		if (Con->GetNetType() == NetType::Client)
-			SendRes((NetClient*)Con);
+			SendRes((NetClient *)Con);
 	}
 	else
 	{
@@ -277,22 +273,22 @@ int NetCoreProcess::EventProcess(epoll_event& event)
 	return 1;
 }
 
-bool NetCoreProcess::SendRes(NetClient* Con)
+bool NetCoreProcess::SendRes(NetClient *Con)
 {
 	if (!Con->GetSendMtx().try_lock())
 		return true; // 写锁正在被其他线程占用
 	int fd = Con->GetFd();
-	SafeQueue<Package*>& SendDatas = Con->GetSendData();
+	SafeQueue<Package *> &SendDatas = Con->GetSendData();
 
 	int count = 0;
 	while (count < 5 && !SendDatas.empty())
 	{
 
-		Package* pak = nullptr;
+		Package *pak = nullptr;
 		if (!SendDatas.front(pak))
 			break;
 
-		Buffer& buffer = pak->buffer;
+		Buffer &buffer = pak->buffer;
 		if (!buffer.Data() || buffer.Length() <= 0)
 		{
 			SendDatas.dequeue(pak);
@@ -304,7 +300,7 @@ bool NetCoreProcess::SendRes(NetClient* Con)
 
 		int result = 0;
 		// 如果有数据没有写完，则一直写数据
-		while ((result = ::send(fd, (char*)(buffer.Data()) + pak->written, left, MSG_NOSIGNAL)) > 0)
+		while ((result = ::send(fd, (char *)(buffer.Data()) + pak->written, left, MSG_NOSIGNAL)) > 0)
 		{
 			if (result <= 0)
 			{
@@ -335,7 +331,7 @@ bool NetCoreProcess::SendRes(NetClient* Con)
 			if (result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) // 当前包未写完，但缓冲区已满,或者被系统中断打断
 			{
 
-				NetCore_EpollData* data = nullptr;
+				NetCore_EpollData *data = nullptr;
 				if (!_EpollData.Find(Con, data))
 				{
 					data = new NetCore_EpollData();
@@ -359,7 +355,7 @@ bool NetCoreProcess::SendRes(NetClient* Con)
 		}
 	}
 
-	NetCore_EpollData* data = nullptr;
+	NetCore_EpollData *data = nullptr;
 	if (!_EpollData.Find(Con, data))
 	{
 		data = new NetCore_EpollData();
@@ -380,14 +376,14 @@ bool NetCoreProcess::SendRes(NetClient* Con)
 }
 
 #elif _WIN32
-bool NetCoreProcess::AddNetFd(Net* Con)
+bool NetCoreProcess::AddNetFd(Net *Con)
 {
 	cout << "AddNetFd Socket :" << Con->GetSocket() << endl;
 	if (!Con->ValidSocket())
 	{
 		return false;
 	}
-	NetCore_SocketData* data = new NetCore_SocketData();
+	NetCore_SocketData *data = new NetCore_SocketData();
 	data->Socket = Con->GetSocket();
 	data->Con = Con;
 	_SocketData.Insert(Con, data);
@@ -412,19 +408,18 @@ bool NetCoreProcess::AddNetFd(Net* Con)
 	}
 	return true;
 }
-bool NetCoreProcess::DelNetFd(Net* Con)
+bool NetCoreProcess::DelNetFd(Net *Con)
 {
 	IODATAMANAGER->CancelIOEvent(Con);
 	_HeartBeatCount.Erase(Con);
 
-	NetCore_SocketData* data = nullptr;
+	NetCore_SocketData *data = nullptr;
 	if (_SocketData.Find(Con, data))
 	{
 		_SocketData.Erase(Con);
 		if (data)
 			delete (data);
 	}
-
 
 	return true;
 }
@@ -447,11 +442,11 @@ void NetCoreProcess::Loop()
 		// }
 
 		DWORD dwByteTransferred;
-		Net* con = NULL;
-		IO_DATA* pIOData = NULL;
+		Net *con = NULL;
+		IO_DATA *pIOData = NULL;
 		while (true)
 		{
-			bool bFlag = ::GetQueuedCompletionStatus(_HIOCP, &dwByteTransferred, (PULONG_PTR)&con, (LPOVERLAPPED*)&pIOData, WSA_INFINITE);
+			bool bFlag = ::GetQueuedCompletionStatus(_HIOCP, &dwByteTransferred, (PULONG_PTR)&con, (LPOVERLAPPED *)&pIOData, WSA_INFINITE);
 			if (!pIOData)
 				continue;
 			pIOData->NumberOfBytesRecvd = dwByteTransferred;
@@ -463,13 +458,13 @@ void NetCoreProcess::Loop()
 	CloseHandle(_HIOCP);
 }
 
-int NetCoreProcess::EventProcess(IO_DATA* IOData, bool bFlag)
+int NetCoreProcess::EventProcess(IO_DATA *IOData, bool bFlag)
 {
 	if (!IOData)
 		return 0;
 
 	SOCKET socket = IOData->socket;
-	Net* Con = IOData->Con;
+	Net *Con = IOData->Con;
 	DWORD OP_Type = IOData->OP_Type;
 	if (!bFlag)
 	{
@@ -487,10 +482,10 @@ int NetCoreProcess::EventProcess(IO_DATA* IOData, bool bFlag)
 	{
 	case OP_ACCEPT:
 	{
-		sockaddr_in* localAddr = NULL;
-		sockaddr_in* clientAddr = NULL;
+		sockaddr_in *localAddr = NULL;
+		sockaddr_in *clientAddr = NULL;
 		int remoteLen = sizeof(sockaddr_in), localLen = sizeof(sockaddr_in);
-		pGetAcceptExSockaddrs(IOData->buffer.buf, 0, sizeof(sockaddr_in) + 16, sizeof(sockaddr_in) + 16, (LPSOCKADDR*)&localAddr, &localLen, (LPSOCKADDR*)&clientAddr, &remoteLen);
+		pGetAcceptExSockaddrs(IOData->buffer.buf, 0, sizeof(sockaddr_in) + 16, sizeof(sockaddr_in) + 16, (LPSOCKADDR *)&localAddr, &localLen, (LPSOCKADDR *)&clientAddr, &remoteLen);
 
 		if (!Con)
 			break;
@@ -539,23 +534,23 @@ int NetCoreProcess::EventProcess(IO_DATA* IOData, bool bFlag)
 	return 1;
 }
 
-bool NetCoreProcess::SendRes(NetClient* Con)
+bool NetCoreProcess::SendRes(NetClient *Con)
 {
 	bool result = true;
 	if (!Con->GetSendMtx().try_lock())
 		return true; // 写锁正在被其他线程占用
 	SOCKET socket = Con->GetSocket();
-	SafeQueue<Package*>& SendDatas = Con->GetSendData();
+	SafeQueue<Package *> &SendDatas = Con->GetSendData();
 
 	int count = 0;
 	while (count < 5 && !SendDatas.empty())
 	{
 
-		Package* pak = nullptr;
+		Package *pak = nullptr;
 		if (!SendDatas.front(pak))
 			break;
 
-		Buffer& buffer = pak->buffer;
+		Buffer &buffer = pak->buffer;
 		if (!buffer.Data() || buffer.Length() <= 0)
 		{
 			SendDatas.dequeue(pak);
@@ -569,10 +564,10 @@ bool NetCoreProcess::SendRes(NetClient* Con)
 		{
 			DWORD sendBytes = 0; // 发送字节数
 			// 如果有数据没有写完，则一直写数据
-			IO_DATA* pIOData = IODATAMANAGER->AllocateData(OP_WRITE, left);
+			IO_DATA *pIOData = IODATAMANAGER->AllocateData(OP_WRITE, left);
 			pIOData->socket = Con->GetSocket();
 			pIOData->Con = Con;
-			memcpy(pIOData->buffer.buf, (char*)buffer.Data() + pak->written, left);
+			memcpy(pIOData->buffer.buf, (char *)buffer.Data() + pak->written, left);
 			if (::WSASend(socket, &pIOData->buffer, 1, &sendBytes, 0, &pIOData->overlap, NULL) == SOCKET_ERROR)
 			{
 				if (ERROR_IO_PENDING != WSAGetLastError()) // 发起重叠操作失败
@@ -585,7 +580,8 @@ bool NetCoreProcess::SendRes(NetClient* Con)
 				result = true;
 				break;
 			}
-			else {
+			else
+			{
 				pak->written += sendBytes;
 				left -= sendBytes;
 			}
@@ -603,9 +599,10 @@ bool NetCoreProcess::SendRes(NetClient* Con)
 			{
 				break;
 			}
-			else {
+			else
+			{
 				DelNetFd(Con);
-				//closesocket(socket);
+				// closesocket(socket);
 				Con->OnRDHUP();
 				break;
 			}
@@ -621,52 +618,54 @@ void NetCoreProcess::HeartBeatLoop()
 	while (_isrunning)
 	{
 
-		auto _call = [&](std::map<Net*, int>& map) -> void
+		auto _call = [&](std::map<Net *, int> &map) -> void
+		{
+			for (auto it = map.begin(); it != map.end();)
 			{
-				for (auto it = map.begin(); it != map.end();)
+				if (it->first->GetNetType() == NetType::Client)
 				{
-					if (it->first->GetNetType() == NetType::Client)
+					(it->second)++;
+					if ((it->second) >= 6) // 2s*5没有收到心跳包，判定客户端掉线
 					{
-						(it->second)++;
-						if ((it->second) >= 6) // 2s*5没有收到心跳包，判定客户端掉线
+						NetClient *Con = (NetClient *)it->first;
+						if (Con->AsyncSend(HeartBuffer))
 						{
-							NetClient* Con = (NetClient*)it->first;
-							if (Con->AsyncSend(HeartBuffer))
-							{
-								it->second = 0;
-								it++;
-							}
-							else
-							{
-								it = map.erase(it);
-								DelNetFd((Net*)Con);
-								Con->OnRDHUP();
-							}
-							// RateLimiter_Manager::Instance()->Pop(fd);
+							it->second = 0;
+							it++;
 						}
 						else
 						{
-							it++;
+							it = map.erase(it);
+							DelNetFd((Net *)Con);
+							Con->OnRDHUP();
 						}
+						// RateLimiter_Manager::Instance()->Pop(fd);
 					}
 					else
 					{
 						it++;
 					}
 				}
-			};
+				else
+				{
+					it++;
+				}
+			}
+		};
 		_HeartBeatCount.EnsureCall(_call);
 		this_thread::sleep_for(std::chrono::seconds(2)); // 睡眠2秒
 	}
 }
 
-bool NetCoreProcess::postAcceptReq(Net* Con)
+#ifdef _WIN32
+bool NetCoreProcess::postAcceptReq(Net *Con)
 {
-	IO_DATA* pIOData = IODATAMANAGER->AllocateData(OP_ACCEPT);
+	IO_DATA *pIOData = IODATAMANAGER->AllocateData(OP_ACCEPT);
 	pIOData->Con = Con;
 	pIOData->socket = NewClientSocket(Con->GetType());
 	int ret = ::pAcceptEx(Con->GetSocket(), pIOData->socket, pIOData->buffer.buf, 0, sizeof(sockaddr_in) + 16, sizeof(sockaddr_in) + 16, nullptr, &pIOData->overlap);
-	if (ret != 0) {
+	if (ret != 0)
+	{
 		IODATAMANAGER->ReleaseData(pIOData);
 		int i = WSAGetLastError();
 		i++;
@@ -674,16 +673,18 @@ bool NetCoreProcess::postAcceptReq(Net* Con)
 	return ret == 0;
 }
 
-bool NetCoreProcess::postRecvReq(Net* Con)
+bool NetCoreProcess::postRecvReq(Net *Con)
 {
-	IO_DATA* pIOData = IODATAMANAGER->AllocateData(OP_READ);
+	IO_DATA *pIOData = IODATAMANAGER->AllocateData(OP_READ);
 	pIOData->socket = Con->GetSocket();
 	pIOData->Con = Con;
 	int ret = ::WSARecv(Con->GetSocket(), &pIOData->buffer, 1, &pIOData->NumberOfBytesRecvd, &pIOData->flag, &pIOData->overlap, NULL);
-	if (ret != 0 && ERROR_IO_PENDING != WSAGetLastError()) {
+	if (ret != 0 && ERROR_IO_PENDING != WSAGetLastError())
+	{
 		IODATAMANAGER->ReleaseData(pIOData);
 		int i = WSAGetLastError();
 		return false;
 	}
 	return true;
 }
+#endif

@@ -9,12 +9,11 @@
 #include <list>
 #include <vector>
 
-
 template <class DataType>
 class ResPool
 {
 protected:
-	std::list<DataType*> _iDleList;
+	std::list<DataType *> _iDleList;
 #ifdef _WIN32
 	CRITICAL_SECTION _csLock;
 #define GETRESLOCK EnterCriticalSection(&_csLock)
@@ -24,7 +23,7 @@ protected:
 #define GETRESLOCK std::lock_guard<std::mutex> lock(_mutex);
 #define GETRESUNLOCK
 #endif
-	std::vector<DataType*> _datas;
+	std::vector<DataType *> _datas;
 	int maxResNum = 1000;
 
 public:
@@ -40,7 +39,7 @@ public:
 		GETRESLOCK;
 		for (size_t i = 0; i < InitResNum; i++)
 		{
-			DataType* data = new DataType();
+			DataType *data = new DataType();
 			_iDleList.push_back(data);
 			_datas.push_back(data);
 		}
@@ -56,14 +55,15 @@ public:
 		}
 		_iDleList.clear();
 		GETRESUNLOCK;
-
+#ifdef _WIN32
 		DeleteCriticalSection(&_csLock);
+#endif
 	}
 
 	// 分配空间
-	virtual DataType* AllocateData()
+	virtual DataType *AllocateData()
 	{
-		DataType* data = NULL;
+		DataType *data = NULL;
 
 		GETRESLOCK;
 		if (_iDleList.size() > 0) // list不为空，从list中取一个
@@ -82,7 +82,7 @@ public:
 	}
 
 	// 回收
-	void ReleaseData(DataType* data)
+	void ReleaseData(DataType *data)
 	{
 		GETRESLOCK;
 		if (_datas.size() < maxResNum)
@@ -90,7 +90,8 @@ public:
 			ResetData(data);
 			_iDleList.push_front(data);
 		}
-		else {
+		else
+		{
 			auto it = find(_datas.begin(), _datas.end(), data);
 			_datas.erase(it);
 			SAFE_DELETE(data);
@@ -98,5 +99,5 @@ public:
 		GETRESUNLOCK;
 	}
 
-	virtual void ResetData(DataType* data) {}
+	virtual void ResetData(DataType *data) {}
 };

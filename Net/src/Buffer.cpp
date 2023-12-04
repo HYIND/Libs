@@ -134,7 +134,7 @@ int Buffer::Seek(const int index)
 
 void Buffer::ReSize(const int length)
 {
-    int min = min(length, 0);
+    // int minSize = min(length, 0);
     if (length == _length)
         return;
 

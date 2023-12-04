@@ -18,4 +18,4 @@ target_link_libraries(public INTERFACE Threads::Threads)
 
 set(CMAKE_BUILD_TYPE "Debug")
 SET(LIBRARY_OUTPUT_PATH ../bin)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread -lfmt")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread -lfmt -fpermissive")
