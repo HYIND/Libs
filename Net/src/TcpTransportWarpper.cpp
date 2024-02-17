@@ -1,5 +1,5 @@
-#include "NetWarpper.h"
-#include "NetCoredef.h"
+#include "Core/TcpTransportWarpper.h"
+#include "Core/NetCoredef.h"
 
 using namespace std;
 
@@ -104,17 +104,17 @@ bool Net::ValidSocket()
 #endif
 }
 
-NetListener::NetListener(SocketType type) : Net(type, false)
+TCPNetListener::TCPNetListener() : Net(SocketType::TCP, false)
 {
 }
-NetListener::~NetListener()
+TCPNetListener::~TCPNetListener()
 {
 	if (!ValidSocket())
 		return;
 	ReleaseListener();
 }
 
-bool NetListener::Listen(const string &IP, int Port)
+bool TCPNetListener::Listen(const string &IP, int Port)
 {
 	if (ValidSocket())
 		ReleaseListener();
@@ -155,7 +155,7 @@ bool NetListener::Listen(const string &IP, int Port)
 	return true;
 }
 
-bool NetListener::ReleaseListener()
+bool TCPNetListener::ReleaseListener()
 {
 #ifdef __linux__
 	if (close(_fd) == -1)
@@ -174,23 +174,23 @@ bool NetListener::ReleaseListener()
 	return true;
 }
 
-bool NetListener::ReleaseClients()
+bool TCPNetListener::ReleaseClients()
 {
 	for (auto it : clients)
 	{
-		NetClient *client = it.second;
+		TCPNetClient *client = it.second;
 		client->Release();
 	}
 	return true;
 }
 
-void NetListener::BindAcceptCallBack(function<void(NetClient *)> callback)
+void TCPNetListener::BindAcceptCallBack(function<void(TCPNetClient *)> callback)
 {
 	this->_callbackAccept = callback;
 }
 
 #ifdef __linux__
-void NetListener::OnEPOLLIN(int fd)
+void TCPNetListener::OnEPOLLIN(int fd)
 {
 	if (fd == this->_fd)
 	{
@@ -201,10 +201,10 @@ void NetListener::OnEPOLLIN(int fd)
 			int clientFd = accept(this->_fd, (struct sockaddr *)&addr, &length);
 			if (clientFd != -1)
 			{
-				NetClient *client = new NetClient();
+				TCPNetClient *client = new TCPNetClient();
 				client->Apply(clientFd, addr, this->_type);
-				this->clients.insert(pair<int, NetClient *>(clientFd, client));
-				cout << "client connect ,address: " << inet_ntoa(addr.sin_addr) << ":" << ntohs(addr.sin_port) << endl;
+				this->clients.insert(pair<int, TCPNetClient *>(clientFd, client));
+				cout << "tcpclient connect ,address: " << inet_ntoa(addr.sin_addr) << ":" << ntohs(addr.sin_port) << endl;
 				if (_callbackAccept)
 					_callbackAccept(client);
 			}
@@ -217,13 +217,13 @@ void NetListener::OnEPOLLIN(int fd)
 	}
 }
 #elif _WIN32
-void NetListener::OnACCEPT(SOCKET socket, sockaddr_in *addr)
+void TCPNetListener::OnACCEPT(SOCKET socket, sockaddr_in *addr)
 {
 	if (socket != INVALID_SOCKET)
 	{
-		NetClient *client = new NetClient();
+		TCPNetClient *client = new TCPNetClient();
 		client->Apply(socket, *addr, this->_type);
-		this->clients.insert(pair<int, NetClient *>(socket, client));
+		this->clients.insert(pair<int, TCPNetClient *>(socket, client));
 		cout << "client connect ,address: " << inet_ntoa(addr->sin_addr) << ":" << ntohs(addr->sin_port) << endl;
 		if (_callbackAccept)
 			_callbackAccept(client);
@@ -235,15 +235,14 @@ void NetListener::OnACCEPT(SOCKET socket, sockaddr_in *addr)
 }
 #endif
 
-void NetListener::OnRDHUP()
+void TCPNetListener::OnRDHUP()
 {
 }
 
-NetClient::NetClient(SocketType type) : Net(type, true)
+TCPNetClient::TCPNetClient() : Net(SocketType::TCP, true)
 {
-	seq = 0;
 }
-NetClient::~NetClient()
+TCPNetClient::~TCPNetClient()
 {
 #ifdef __linux__
 	if (_fd <= 0)
@@ -254,7 +253,7 @@ NetClient::~NetClient()
 	Release();
 }
 
-bool NetClient::Connet(const std::string &IP, uint16_t Port)
+bool TCPNetClient::Connet(const std::string &IP, uint16_t Port)
 {
 	if (ValidSocket())
 		Release();
@@ -299,7 +298,7 @@ bool NetClient::Connet(const std::string &IP, uint16_t Port)
 	return true;
 }
 #ifdef __linux__
-void NetClient::Apply(const int fd, const sockaddr_in &sockaddr, const SocketType type)
+void TCPNetClient::Apply(const int fd, const sockaddr_in &sockaddr, const SocketType type)
 {
 	if (ValidSocket())
 		Release();
@@ -310,7 +309,7 @@ void NetClient::Apply(const int fd, const sockaddr_in &sockaddr, const SocketTyp
 	NetCore->AddNetFd(this);
 }
 #elif _WIN32
-void NetClient::Apply(const SOCKET socket, const sockaddr_in &sockaddr, const SocketType type)
+void TCPNetClient::Apply(const SOCKET socket, const sockaddr_in &sockaddr, const SocketType type)
 {
 	if (ValidSocket())
 		Release();
@@ -322,7 +321,7 @@ void NetClient::Apply(const SOCKET socket, const sockaddr_in &sockaddr, const So
 }
 #endif
 
-bool NetClient::Release()
+bool TCPNetClient::Release()
 {
 	bool result = false;
 	NetCore->DelNetFd(this);
@@ -337,33 +336,25 @@ bool NetClient::Release()
 #endif
 	result = true;
 
-	Package *pak = nullptr;
-	while (_RecvDatas.dequeue(pak))
-		SAFE_DELETE(pak);
+	Buffer *buf = nullptr;
+	while (_RecvDatas.dequeue(buf))
+		SAFE_DELETE(buf);
+	while (_SendDatas.dequeue(buf))
+		SAFE_DELETE(buf);
 
 	return result;
 }
 
-bool NetClient::AsyncSend(const Buffer &buffer, int ack)
+bool TCPNetClient::Send(const Buffer &buffer)
 {
 	try
 	{
 		if (!buffer.Data() || buffer.Length() < 0)
 			return true;
-		MsgHeader header;
-		int seq = this->seq++;
-		header.seq = seq;
-		header.ack = ack;
-		header.length = buffer.Length();
-		Buffer buf(sizeof(MsgHeader) + buffer.Length());
-		buf.Write(&header, sizeof(MsgHeader));
-		buf.Write(buffer);
 
-		Package *pak = new Package();
-		pak->seq = header.seq;
-		pak->ack = header.ack;
-		pak->buffer.QuoteFromBuf(buf);
-		this->_SendDatas.enqueue(pak);
+		Buffer *buf = new Buffer();
+		buf->CopyFromBuf(buffer);
+		_SendDatas.enqueue(buf);
 		return NetCore->SendRes(this);
 	}
 	catch (const std::exception &e)
@@ -373,58 +364,8 @@ bool NetClient::AsyncSend(const Buffer &buffer, int ack)
 	}
 }
 
-bool NetClient::AwaitSend(const Buffer &buffer, Buffer &response) // 等待返回结果的发送，关心返回的结果
-{
-	try
-	{
-		if (!buffer.Data() || buffer.Length() < 0)
-			return true;
-
-		bool result = false;
-		AwaitTask *task = new AwaitTask();
-		task->respsonse = &response;
-
-		MsgHeader header;
-		int seq = this->seq++;
-		header.seq = seq;
-		header.ack = -1;
-		header.length = buffer.Length();
-		Buffer buf = Buffer(sizeof(MsgHeader) + buffer.Length());
-		buf.Write(&header, sizeof(MsgHeader));
-		buf.Write(buffer);
-
-		task->seq = header.seq;
-		_AwaitMap.insert(pair<int, AwaitTask *>(task->seq, task));
-
-		Package *pak = new Package();
-		pak->seq = header.seq;
-		pak->ack = header.ack;
-		pak->buffer.QuoteFromBuf(buf);
-		this->_SendDatas.enqueue(pak);
-
-		if (NetCore->SendRes(this)) // 发送
-		{
-			unique_lock<mutex> awaitlck(task->_mtx);
-			task->isWait = true;
-			printf("wait_for , task->seq:%d\n", task->seq);
-			result = task->_cv.wait_for(awaitlck, std::chrono::seconds(8)) != std::cv_status::timeout; // 等待返回并超时检查
-		}
-
-		auto it = _AwaitMap.find(task->seq);
-		if (it != _AwaitMap.end())
-			_AwaitMap.erase(it);
-		delete task;
-		return result;
-	}
-	catch (const std::exception &e)
-	{
-		std::cerr << e.what() << '\n';
-		return false;
-	}
-}
-
 #ifdef __linux__
-int NetClient::Recv(Buffer &buffer, int length)
+int TCPNetClient::Read(Buffer &buffer, int length)
 {
 	Buffer buf(length);
 	int result = ::recv(_fd, buf.Data(), length, MSG_NOSIGNAL);
@@ -434,7 +375,7 @@ int NetClient::Recv(Buffer &buffer, int length)
 }
 
 #elif _WIN32
-int NetClient::Recv(Buffer &buffer, int length)
+int TCPNetClient::Read(Buffer &buffer, int length)
 {
 	// Buffer buf(length);
 	// int result = ::recv(_fd, buf.Data(), length, MSG_NOSIGNAL);
@@ -445,108 +386,119 @@ int NetClient::Recv(Buffer &buffer, int length)
 }
 #endif
 
-void NetClient::BindMessageCallBack(function<void(NetClient *, Package *pak, Buffer *AckResponse)> callback)
+void TCPNetClient::BindBufferCallBack(function<void(TCPNetClient *, Buffer *)> callback)
 {
-	this->_callbackMessage = callback;
+	_callbackBuffer = callback;
 }
-void NetClient::BindRDHUPCallBack(function<void(NetClient *)> callback)
+void TCPNetClient::BindRDHUPCallBack(function<void(TCPNetClient *)> callback)
 {
-	this->_callbackRDHUP = callback;
+	_callbackRDHUP = callback;
 }
-SafeQueue<Package *> &NetClient::GetRecvData() { return _RecvDatas; }
-SafeQueue<Package *> &NetClient::GetSendData() { return _SendDatas; }
-std::mutex &NetClient::GetSendMtx() { return _SendResMtx; }
+SafeQueue<Buffer *> &TCPNetClient::GetRecvData() { return _RecvDatas; }
+SafeQueue<Buffer *> &TCPNetClient::GetSendData() { return _SendDatas; }
+std::mutex &TCPNetClient::GetSendMtx() { return _SendResMtx; }
 
 #ifdef __linux__
-void NetClient::OnEPOLLIN(int fd)
+void TCPNetClient::OnEPOLLIN(int fd)
 {
-	int count = 10;
-	while (count > 0)
+	auto read = [&](Buffer &buf, int length) -> bool
 	{
-		auto read = [&](void *dest, int length) -> bool
+		if (buf.Length() < length)
+			buf.ReSize(length);
+
+		int remaind = length;
+		int trycount = 10;
+		while (trycount > 0)
 		{
-			int num = length;
-			while (true)
+			int result = ::recv(_fd, ((char *)buf.Data()) + (length - remaind), remaind, 0);
+			if ((remaind - result) == 0)
 			{
-				int result = ::recv(_fd, ((char *)dest) + (length - num), num, 0);
-				if ((num - result) == 0)
+				return true;
+			}
+			if (result <= 0)
+			{
+				if (result < 0)
 				{
-					return true;
-				}
-				if (result <= 0)
-				{
-					if (result < 0)
+					if (errno == EAGAIN || errno == EWOULDBLOCK)
 					{
-						if (errno == EAGAIN || errno == EWOULDBLOCK)
-						{
-							continue;
-						}
-						else if (errno == EINTR)
-						{
-							continue;
-						}
-						else
-						{
-							return false;
-						}
+						trycount--;
+						continue;
+					}
+					else if (errno == EINTR)
+					{
+						trycount--;
+						continue;
 					}
 					else
 					{
-						if (!this->AsyncSend(HeartBuffer))
-							return false;
+						buf.ReSize(buf.Length() - remaind);
+						return false;
 					}
 				}
-				num -= result;
+				else
+				{
+					// if (!this->AsyncSend(HeartBuffer))
+					// {
+					// 	buf.ReSize(buf.Length() - remaind);
+					// 	return false;
+					// }
+					trycount--;
+				}
 			}
-			return false;
-		};
+			remaind -= result;
+		}
+		buf.ReSize(buf.Length() - remaind);
+		return false;
+	};
 
-		MsgHeader header;
-		if (!read(&header, sizeof(MsgHeader)))
+	int recvcount = 10;
+	while (recvcount > 0)
+	{
+		static int MaxBufferLnegth = 2048;
+		Buffer *buf = new Buffer(MaxBufferLnegth);
+		bool result = read(*buf, MaxBufferLnegth);
+
+		if (buf->Length() > 0)
 		{
+			_RecvDatas.enqueue(buf);
+			if (buf->Length() < MaxBufferLnegth)
+			{
+				break;
+			}
+		}
+		else
+		{
+			SAFE_DELETE(buf);
 			break;
 		}
-		Buffer buf(header.length);
-		read(buf.Data(), header.length);
+		recvcount--;
+	}
 
-		if (IsHeartBeat(buf))
+	while (!_RecvDatas.empty())
+	{
+		Buffer *buf = nullptr;
+		if (!_RecvDatas.front(buf))
+			break;
+
+		int pos = buf->Postion();
+		if (_callbackBuffer)
+			_callbackBuffer(this, buf);
+
+		// 该流已经被读取完毕
+		if (buf->Length() - buf->Postion() == 0)
+		{
+			_RecvDatas.dequeue(buf);
+			SAFE_DELETE(buf);
 			continue;
-
-		Package *pak = new Package();
-		pak->seq = header.seq;
-		pak->ack = header.ack;
-		pak->buffer.QuoteFromBuf(buf);
-
-		if (_RecvDatas.size() > 300)
-		{
-			Package *pak = nullptr;
-			if (_RecvDatas.dequeue(pak))
-				SAFE_DELETE(pak);
 		}
-		_RecvDatas.enqueue(pak);
 
-		if (pak->ack != -1)
-		{
-			if (_AwaitMap.find(pak->ack) != _AwaitMap.end())
-			{
-				if (_AwaitMap[pak->ack]->respsonse)
-					_AwaitMap[pak->ack]->respsonse->CopyFromBuf(pak->buffer);
-				_AwaitMap[pak->ack]->_cv.notify_all();
-			}
-		}
-		else if (_callbackMessage)
-		{
-			Buffer resposne;
-			_callbackMessage(this, pak, &resposne);
-			if (resposne.Length() > 0)
-				this->AsyncSend(resposne, pak->seq);
-			resposne.Release();
-		}
-		count--;
+		// 流未读取完毕，但Postion前后未发生变化，表示应用层暂不需要数据
+		if (pos == buf->Postion())
+			break;
 	}
 }
 #elif _WIN32
-void NetClient::OnREAD(SOCKET socket, Buffer &buffer)
+void TCPNetClient::OnREAD(SOCKET socket, Buffer &buffer)
 {
 	if (socket != this->_socket)
 		return;
@@ -638,7 +590,7 @@ void NetClient::OnREAD(SOCKET socket, Buffer &buffer)
 }
 #endif
 
-void NetClient::OnRDHUP()
+void TCPNetClient::OnRDHUP()
 {
 	cout << "OnRDHUP" << endl;
 	// NetCore->DelNetFd(this);

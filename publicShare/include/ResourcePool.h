@@ -29,7 +29,7 @@ protected:
 public:
 	ResPool(int InitResNum = 300, int maxResNum = 1000)
 	{
-		maxResNum = max(InitResNum, maxResNum);
+		maxResNum = std::max(InitResNum, maxResNum);
 #ifdef _WIN32
 		InitializeCriticalSection(&_csLock);
 #endif

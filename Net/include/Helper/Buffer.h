@@ -60,22 +60,39 @@ public:
     EXPORT_FUNC ~Buffer();
 
     EXPORT_FUNC void *Data() const;
+    EXPORT_FUNC char *Byte() const;
     EXPORT_FUNC int Length() const;
     EXPORT_FUNC int Postion() const;
+    EXPORT_FUNC int Remaind() const;
 
     EXPORT_FUNC void CopyFromBuf(const char *buf, int length); // 拷贝
     EXPORT_FUNC void CopyFromBuf(const Buffer &other);
     EXPORT_FUNC void QuoteFromBuf(char *buf, int length); // 以引用的形式占有一段内存
     EXPORT_FUNC void QuoteFromBuf(Buffer &other);
 
+    /**
+     * 以下读写操作均与pos相关，并引起相关流pos变化
+     */
+
+    /** 以下操作引起当前流pos变化*/
     EXPORT_FUNC int Write(const Buffer &other);               // 从pos开始，向当前流写入数据，数据来源为其他流
     EXPORT_FUNC int Write(const std::string &str);            // 从pos开始，向当前流写入数据
     EXPORT_FUNC int Write(const void *buf, const int length); // 从pos开始，向当前流写入数据
-    EXPORT_FUNC int Read(void **buf, const int length);       // 从pos开始，读出当前流内的数据
-    EXPORT_FUNC int Seek(const int index);
+    EXPORT_FUNC int Read(void *buf, const int length);        // 从pos开始，读出当前流内的数据,返回实际读取字节数
+    EXPORT_FUNC int Seek(const int index);                    // 设置pos
 
-    EXPORT_FUNC void Release();
-    EXPORT_FUNC void ReSize(const int length);
+    /** 以下操作引起其他流pos变化*/
+    EXPORT_FUNC int Append(Buffer &other);             // 从其他流的pos开始读取剩余内容，向当前流末尾追加数据，返回实际追加的字节数，该操作会引起其他流pos变化
+    EXPORT_FUNC int Append(Buffer &other, int length); // 从其他流的pos开始读取length字节，向当前流末尾追加数据，返回实际追加的字节数，该操作会引起其他流pos变化
+
+    /** 以下操作引起当前流与其他流pos变化*/
+    EXPORT_FUNC int WriteFromOtherBufferPos(Buffer &other);             // 从当前流pos开始，从其他流的pos开始读取剩余内容，向当前流写入，返回实际读取的字节数，该操作会引起其他流的pos变化
+    EXPORT_FUNC int WriteFromOtherBufferPos(Buffer &other, int length); // 从当前流pos开始，从其他流的pos开始读取length字节，向当前流写入，返回实际读取的字节数，该操作会引起其他流的pos变化
+
+    EXPORT_FUNC void Release();                                  // 释放当前流，并重置pos,length
+    EXPORT_FUNC void ReSize(const int length);                   // 重置流大小，可能会截断原流
+    EXPORT_FUNC void Shift(const int length);                    // 从流的头部开始，移除该流的前n个字节
+    EXPORT_FUNC void Unshift(const void *buf, const int length); // 在该流的头部添加n个字节
 
 private:
     char *_buf = nullptr;

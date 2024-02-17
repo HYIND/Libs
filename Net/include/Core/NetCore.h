@@ -56,5 +56,6 @@
         exit(1);                                                                                 \
     }
 
-EXPORT_FUNC void RunNetCoreLoop();
 EXPORT_FUNC void InitNetCore();
+EXPORT_FUNC void RunNetCoreLoop(bool isBlock = false);
+EXPORT_FUNC bool NetCoreRunning();

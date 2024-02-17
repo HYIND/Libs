@@ -14,12 +14,12 @@ public:
 
 	~SafeMap() {}
 
-	SafeMap(const SafeMap& rhs)
+	SafeMap(const SafeMap &rhs)
 	{
 		map_ = rhs.map_;
 	}
 
-	SafeMap& operator=(const SafeMap& rhs)
+	SafeMap &operator=(const SafeMap &rhs)
 	{
 		if (&rhs != this)
 		{
@@ -29,7 +29,7 @@ public:
 		return *this;
 	}
 
-	V& operator[](const K& key)
+	V &operator[](const K &key)
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
 		return map_[key];
@@ -47,14 +47,16 @@ public:
 		return map_.empty();
 	}
 
-	bool Insert(const K& key, const V& value)
+	bool Insert(const K &key, const V &value)
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
+		if (map_.find(key) != map_.end())
+			return false;
 		auto ret = map_.insert(std::pair<K, V>(key, value));
-		return ret.second;
+		return true;
 	}
 
-	void EnsureInsert(const K& key, const V& value)
+	void EnsureInsert(const K &key, const V &value)
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
 		auto ret = map_.insert(std::pair<K, V>(key, value));
@@ -68,7 +70,7 @@ public:
 		return;
 	}
 
-	bool Find(const K& key, V& value)
+	bool Find(const K &key, V &value)
 	{
 		bool ret = false;
 		std::lock_guard<std::mutex> lock(mutex_);
@@ -83,7 +85,7 @@ public:
 		return ret;
 	}
 
-	bool FindOldAndSetNew(const K& key, V& oldValue, const V& newValue)
+	bool FindOldAndSetNew(const K &key, V &oldValue, const V &newValue)
 	{
 		bool ret = false;
 		std::lock_guard<std::mutex> lock(mutex_);
@@ -103,7 +105,7 @@ public:
 		return ret;
 	}
 
-	void Erase(const K& key)
+	void Erase(const K &key)
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
 
@@ -118,7 +120,7 @@ public:
 		return;
 	}
 
-	void EnsureCall(std::function<void(std::map<K, V>& map)> callback)
+	void EnsureCall(std::function<void(std::map<K, V> &map)> callback)
 	{
 		if (callback)
 		{
@@ -141,7 +143,7 @@ private:
 
 public:
 	SafeQueue() {}
-	SafeQueue(SafeQueue&& other) {}
+	SafeQueue(SafeQueue &&other) {}
 	~SafeQueue() {}
 	bool empty()
 	{
@@ -154,13 +156,13 @@ public:
 		return _queue.size();
 	}
 	// 队列添加元素
-	void enqueue(T& t)
+	void enqueue(T &t)
 	{
 		std::unique_lock<std::mutex> lock(_mutex);
 		_queue.emplace(t);
 	}
 	// 队列取出元素
-	bool dequeue(T& t)
+	bool dequeue(T &t)
 	{
 		std::unique_lock<std::mutex> lock(_mutex);
 		if (_queue.empty())
@@ -170,7 +172,7 @@ public:
 		return true;
 	}
 	// 查看队列首元素
-	bool front(T& t)
+	bool front(T &t)
 	{
 		std::unique_lock<std::mutex> lock(_mutex);
 		if (_queue.empty())
@@ -179,12 +181,73 @@ public:
 		return true;
 	}
 	// 查看队列尾元素
-	bool back(T& t)
+	bool back(T &t)
 	{
 		std::unique_lock<std::mutex> lock(_mutex);
 		if (_queue.empty())
 			return false;
 		t = std::move(_queue.back());
 		return true;
+	}
+};
+
+template <typename T>
+class SafeArray
+{
+private:
+	std::vector<T> _array;
+	std::mutex _mutex;
+
+public:
+	SafeArray() {}
+	SafeArray(SafeArray &&other) {}
+	~SafeArray() {}
+	void clear()
+	{
+		std::unique_lock<std::mutex> lock(_mutex);
+		return _array.clear();
+	}
+	bool empty()
+	{
+		std::unique_lock<std::mutex> lock(_mutex);
+		return _array.empty();
+	}
+	int size()
+	{
+		std::unique_lock<std::mutex> lock(_mutex);
+		return _array.size();
+	}
+	// 数组添加元素
+	void emplace(T &t)
+	{
+		std::unique_lock<std::mutex> lock(_mutex);
+		_array.emplace_back(t);
+	}
+	// 数组访问元素
+	bool getIndexElement(size_t index, T &t)
+	{
+		std::unique_lock<std::mutex> lock(_mutex);
+		if (_array.empty() || index >= _array.size())
+			return false;
+		t = std::move(_array.at(index));
+		return true;
+	}
+	// 数组删除元素
+	bool deleteIndexElement(size_t index)
+	{
+		std::unique_lock<std::mutex> lock(_mutex);
+		if (_array.empty() || index >= _array.size())
+			return false;
+		_array.erase(_array.begin() + index);
+		return true;
+	}
+
+	void EnsureCall(std::function<void(std::vector<T> &array)> callback)
+	{
+		if (callback)
+		{
+			std::lock_guard<std::mutex> lock(_mutex);
+			callback(this->_array);
+		}
 	}
 };

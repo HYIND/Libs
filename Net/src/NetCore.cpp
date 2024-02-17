@@ -1,9 +1,7 @@
-#include "NetCoredef.h"
-#include "NetCore.h"
+#include "Core/NetCoredef.h"
+#include "Core/NetCore.h"
 
 using namespace std;
-
-Buffer HeartBuffer("23388990");
 
 #ifdef __linux__
 void setnonblocking(int fd)
@@ -47,15 +45,6 @@ SOCKET NewClientSocket(SocketType type)
 }
 #endif
 
-void RunNetCoreLoop()
-{
-	if (!NetCoreProcess::Instance()->Running())
-	{
-		thread CoreThread(&NetCoreProcess::Run, NetCoreProcess::Instance());
-		CoreThread.join();
-	}
-}
-
 void InitNetCore()
 {
 #ifdef _WIN32
@@ -63,9 +52,21 @@ void InitNetCore()
 #endif
 }
 
-bool IsHeartBeat(const Buffer &Buffer)
+void RunNetCoreLoop(bool isBlock)
 {
-	return (Buffer.Length() == 8 && 0 == strncmp((char *)HeartBuffer.Data(), (char *)Buffer.Data(), 8));
+	if (!NetCoreProcess::Instance()->Running())
+	{
+		thread CoreThread(&NetCoreProcess::Run, NetCoreProcess::Instance());
+		if (isBlock)
+			CoreThread.join();
+		else
+			CoreThread.detach();
+	}
+}
+
+bool NetCoreRunning()
+{
+	return NetCoreProcess::Instance()->Running();
 }
 
 NetCoreProcess::NetCoreProcess()
@@ -111,9 +112,7 @@ int NetCoreProcess::Run()
 	try
 	{
 		_isrunning = true;
-		// thread HeartLoop(&NetCoreProcess::HeartBeatLoop, this);
 		thread EventLoop(&NetCoreProcess::Loop, this);
-		// HeartLoop.join();
 		EventLoop.join();
 		_isrunning = false;
 
@@ -134,7 +133,7 @@ bool NetCoreProcess::Running()
 #ifdef __linux__
 bool NetCoreProcess::AddNetFd(Net *Con)
 {
-	cout << "AddNetFd fd :" << Con->GetFd() << endl;
+	// cout << "AddNetFd fd :" << Con->GetFd() << endl;
 	if (Con->GetFd() <= 0)
 	{
 		return false;
@@ -143,23 +142,18 @@ bool NetCoreProcess::AddNetFd(Net *Con)
 	data->fd = Con->GetFd();
 	data->Con = Con;
 	_EpollData.Insert(Con, data);
-	_HeartBeatCount.Insert(Con, 0);
 	addfd(_epoll, Con->GetFd(), data, true);
 	return true;
 }
 bool NetCoreProcess::DelNetFd(Net *Con)
 {
 	delfd(_epoll, Con->GetFd());
-	cout << "    _HeartBeatCount.Erase(Con);Start\n";
-	_HeartBeatCount.Erase(Con);
-	cout << "    _HeartBeatCount.Erase(Con);End\n";
 
 	NetCore_EpollData *data = nullptr;
 	if (_EpollData.Find(Con, data))
 	{
 		_EpollData.Erase(Con);
-		if (data)
-			delete (data);
+		SAFE_DELETE(data);
 	}
 
 	return true;
@@ -193,6 +187,10 @@ void NetCoreProcess::Loop()
 		{
 			EventProcess(_events[i]);
 		}
+		int i = 0;
+		i--;
+		if (i == 1)
+			_isrunning = false;
 	}
 	// close(timefd);
 	close(_epoll);
@@ -243,26 +241,19 @@ int NetCoreProcess::EventProcess(epoll_event &event)
 	}
 	else if (events & (EPOLLIN | EPOLLERR))
 	{
-		// _HeartBeatCount[Con] = 0;
 		try
 		{
-			int oldCount = 0;
-			if (!_HeartBeatCount.FindOldAndSetNew(Con, oldCount, 0))
-			{
-				_HeartBeatCount.Insert(Con, 0);
-			}
 			Con->OnEPOLLIN(fd);
 		}
 		catch (const std::exception &e)
 		{
-			cout << "_HeartBeatCount.Size :" << _HeartBeatCount.Size() << endl;
 			std::cerr << e.what() << '\n';
 		}
 	}
 	else if (events & EPOLLOUT)
 	{
 		if (Con->GetNetType() == NetType::Client)
-			SendRes((NetClient *)Con);
+			SendRes((TCPNetClient *)Con);
 	}
 	else
 	{
@@ -273,34 +264,33 @@ int NetCoreProcess::EventProcess(epoll_event &event)
 	return 1;
 }
 
-bool NetCoreProcess::SendRes(NetClient *Con)
+bool NetCoreProcess::SendRes(TCPNetClient *Con)
 {
 	if (!Con->GetSendMtx().try_lock())
 		return true; // 写锁正在被其他线程占用
 	int fd = Con->GetFd();
-	SafeQueue<Package *> &SendDatas = Con->GetSendData();
+	SafeQueue<Buffer *> &SendDatas = Con->GetSendData();
 
 	int count = 0;
 	while (count < 5 && !SendDatas.empty())
 	{
 
-		Package *pak = nullptr;
-		if (!SendDatas.front(pak))
+		Buffer *buffer = nullptr;
+		if (!SendDatas.front(buffer))
 			break;
 
-		Buffer &buffer = pak->buffer;
-		if (!buffer.Data() || buffer.Length() <= 0)
+		if (!buffer->Data() || buffer->Length() <= 0)
 		{
-			SendDatas.dequeue(pak);
-			SAFE_DELETE(pak);
+			SendDatas.dequeue(buffer);
+			SAFE_DELETE(buffer);
 			count++;
 			continue;
 		}
-		size_t left = buffer.Length() - pak->written;
+		size_t left = buffer->Length() - buffer->Postion();
 
 		int result = 0;
 		// 如果有数据没有写完，则一直写数据
-		while ((result = ::send(fd, (char *)(buffer.Data()) + pak->written, left, MSG_NOSIGNAL)) > 0)
+		while ((result = ::send(fd, (char *)(buffer->Data()) + buffer->Postion(), left, MSG_NOSIGNAL)) > 0)
 		{
 			if (result <= 0)
 			{
@@ -316,14 +306,14 @@ bool NetCoreProcess::SendRes(NetClient *Con)
 						continue;
 				}
 			}
-			pak->written += result;
+			buffer->Seek(buffer->Postion() + result);
 			left -= result;
 		};
 
 		if (left == 0) // 当前包已写完
 		{
-			SendDatas.dequeue(pak);
-			SAFE_DELETE(pak);
+			SendDatas.dequeue(buffer);
+			SAFE_DELETE(buffer);
 			count++;
 		}
 		else
@@ -387,7 +377,6 @@ bool NetCoreProcess::AddNetFd(Net *Con)
 	data->Socket = Con->GetSocket();
 	data->Con = Con;
 	_SocketData.Insert(Con, data);
-	_HeartBeatCount.Insert(Con, 0);
 
 	CreateIoCompletionPort((HANDLE)Con->GetSocket(), _HIOCP, (ULONG_PTR)Con, 0);
 	if (Con->GetNetType() == NetType::Client)
@@ -411,7 +400,6 @@ bool NetCoreProcess::AddNetFd(Net *Con)
 bool NetCoreProcess::DelNetFd(Net *Con)
 {
 	IODATAMANAGER->CancelIOEvent(Con);
-	_HeartBeatCount.Erase(Con);
 
 	NetCore_SocketData *data = nullptr;
 	if (_SocketData.Find(Con, data))
@@ -612,50 +600,6 @@ bool NetCoreProcess::SendRes(NetClient *Con)
 	return result;
 }
 #endif
-
-void NetCoreProcess::HeartBeatLoop()
-{
-	while (_isrunning)
-	{
-
-		auto _call = [&](std::map<Net *, int> &map) -> void
-		{
-			for (auto it = map.begin(); it != map.end();)
-			{
-				if (it->first->GetNetType() == NetType::Client)
-				{
-					(it->second)++;
-					if ((it->second) >= 6) // 2s*5没有收到心跳包，判定客户端掉线
-					{
-						NetClient *Con = (NetClient *)it->first;
-						if (Con->AsyncSend(HeartBuffer))
-						{
-							it->second = 0;
-							it++;
-						}
-						else
-						{
-							it = map.erase(it);
-							DelNetFd((Net *)Con);
-							Con->OnRDHUP();
-						}
-						// RateLimiter_Manager::Instance()->Pop(fd);
-					}
-					else
-					{
-						it++;
-					}
-				}
-				else
-				{
-					it++;
-				}
-			}
-		};
-		_HeartBeatCount.EnsureCall(_call);
-		this_thread::sleep_for(std::chrono::seconds(2)); // 睡眠2秒
-	}
-}
 
 #ifdef _WIN32
 bool NetCoreProcess::postAcceptReq(Net *Con)
