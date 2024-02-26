@@ -1,15 +1,19 @@
+/*
+	该文件是对IO事件驱动的封装，用于触发网络事件，进行数据的收发
+	NetCoreProcess是一个网络事件驱动核心，在Linux下是基于epoll封装，在Windows中是基于HIOCP进行封装
+*/
+
 #pragma once
 
-#include "TcpTransportWarpper.h"
+#include "TCPTransportWarpper.h"
 #include "ResourcePool.h"
 
-extern Buffer HeartBuffer;
 
 #ifdef __linux__
 struct NetCore_EpollData
 {
 	int fd;
-	Net *Con;
+	BaseTransportConnection *Con;
 };
 #elif _WIN32
 struct NetCore_SocketData
@@ -122,9 +126,9 @@ public:
 	bool Running();
 
 public:
-	bool AddNetFd(Net *Con);
-	bool DelNetFd(Net *Con);
-	bool SendRes(TCPNetClient *fd);
+	bool AddNetFd(BaseTransportConnection *Con);
+	bool DelNetFd(BaseTransportConnection *Con);
+	bool SendRes(TCPTransportConnection *Con);
 
 private:
 	NetCoreProcess();
@@ -145,9 +149,9 @@ private:
 private:
 	bool _isrunning = false;
 #ifdef __linux__
-	int _epoll = epoll_create(300);
-	epoll_event _events[500];
-	SafeMap<Net *, NetCore_EpollData *> _EpollData;
+	int _epoll = epoll_create(1000);
+	epoll_event _events[1500];
+	SafeMap<BaseTransportConnection *, NetCore_EpollData *> _EpollData;
 #elif _WIN32
 	HANDLE _HIOCP;
 	SafeMap<Net *, NetCore_SocketData *> _SocketData;

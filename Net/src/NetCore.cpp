@@ -131,7 +131,7 @@ bool NetCoreProcess::Running()
 }
 
 #ifdef __linux__
-bool NetCoreProcess::AddNetFd(Net *Con)
+bool NetCoreProcess::AddNetFd(BaseTransportConnection *Con)
 {
 	// cout << "AddNetFd fd :" << Con->GetFd() << endl;
 	if (Con->GetFd() <= 0)
@@ -145,7 +145,7 @@ bool NetCoreProcess::AddNetFd(Net *Con)
 	addfd(_epoll, Con->GetFd(), data, true);
 	return true;
 }
-bool NetCoreProcess::DelNetFd(Net *Con)
+bool NetCoreProcess::DelNetFd(BaseTransportConnection *Con)
 {
 	delfd(_epoll, Con->GetFd());
 
@@ -177,7 +177,7 @@ void NetCoreProcess::Loop()
 
 	while (_isrunning)
 	{
-		int number = epoll_wait(_epoll, _events, 200, -1);
+		int number = epoll_wait(_epoll, _events, 800, -1);
 		if (number < 0 && (errno != EINTR))
 		{
 			cout << "_epoll failure\n";
@@ -199,7 +199,7 @@ void NetCoreProcess::Loop()
 int NetCoreProcess::EventProcess(epoll_event &event)
 {
 	int fd = ((NetCore_EpollData *)event.data.ptr)->fd;
-	Net *Con = ((NetCore_EpollData *)event.data.ptr)->Con;
+	BaseTransportConnection *Con = ((NetCore_EpollData *)event.data.ptr)->Con;
 	uint32_t events = event.events;
 
 	/*     if ((event.data.fd == timefd) && (event.events & EPOLLIN))
@@ -253,7 +253,7 @@ int NetCoreProcess::EventProcess(epoll_event &event)
 	else if (events & EPOLLOUT)
 	{
 		if (Con->GetNetType() == NetType::Client)
-			SendRes((TCPNetClient *)Con);
+			SendRes((TCPTransportConnection *)Con);
 	}
 	else
 	{
@@ -264,7 +264,7 @@ int NetCoreProcess::EventProcess(epoll_event &event)
 	return 1;
 }
 
-bool NetCoreProcess::SendRes(TCPNetClient *Con)
+bool NetCoreProcess::SendRes(TCPTransportConnection *Con)
 {
 	if (!Con->GetSendMtx().try_lock())
 		return true; // 写锁正在被其他线程占用

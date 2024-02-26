@@ -1,5 +1,5 @@
-#include "ProtocolEndPoint/CustomTcpProtocolClient.h"
-#include "ProtocolEndPoint/WebSocketProtocolClient.h"
+#include "Session/CustomTcpSession.h"
+#include "Session/CustomWebSocketSession.h"
 #include "Core/NetCore.h"
 #include "fmt/core.h"
 #include "Log.h"
@@ -8,16 +8,16 @@
 
 using namespace std;
 
-void PrintMessage(TCPProtocolClient *client, Buffer *recv, Buffer *AckResponse)
+void PrintMessage(BaseNetWorkSession *basesession, Buffer *recv, Buffer *AckResponse)
 {
-    cout << fmt::format("client recvData: fd={}, RemoteIpAddr={}:{}, data:{} \n",
-                        client->GetBaseCon()->GetFd(), client->GetBaseCon()->GetIPAddr(), client->GetBaseCon()->GetPort(), (char *)(recv->Data()));
+    cout << fmt::format("client recvData: RemoteIpAddr={}:{}, data:{} \n",
+                        basesession->GetIPAddr(), basesession->GetPort(), recv->Byte());
 }
 
-void PrintCloseConnect(TCPProtocolClient *client)
+void PrintCloseConnect(BaseNetWorkSession *session)
 {
-    cout << fmt::format("client Connection Close: fd={}, RemoteIpAddr={}:{} \n",
-                        client->GetBaseCon()->GetFd(), client->GetBaseCon()->GetIPAddr(), client->GetBaseCon()->GetPort());
+    cout << fmt::format("client Connection Close: RemoteIpAddr={}:{} \n",
+                        session->GetIPAddr(), session->GetPort());
 }
 
 class A
@@ -38,9 +38,9 @@ int main(int argc, char *argv[])
     sleep(1);
 
     bool isStop = false;
-    std::map<int, TCPProtocolClient *> clients;
+    std::map<int, CustomWebSocketSession *> sessions;
 
-    int num = 10;
+    int num = 1000;
 
     if (argc > 1)
     {
@@ -48,7 +48,7 @@ int main(int argc, char *argv[])
         cout << "input threadnum:" << num << "\n";
     }
 
-    auto test = [&](int i, TCPProtocolClient *client) -> void
+    auto test = [&](int i, CustomWebSocketSession *session) -> void
     {
         unsigned long count = 0;
         while (!isStop)
@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
             if (count % 10 != 0)
             {
                 Buffer buf("332112", 6);
-                if (client->AsyncSend(buf))
+                if (session->AsyncSend(buf))
                 {
                     // cout << fmt::format("AsyncSendData To {}:{} ,SendData={}",
                     //                     client->GetBaseCon()->GetIPAddr(), client->GetBaseCon()->GetPort(), buf.Byte())
@@ -70,7 +70,7 @@ int main(int argc, char *argv[])
             else
             {
                 Buffer buf("AwaitRequest", 12), response;
-                if (client->AwaitSend(buf, response))
+                if (session->AwaitSend(buf, response))
                 {
                     // cout << fmt::format("AwaitSendData To {}:{} ,SendData={}  ,And ResponseData={}",
                     //                     client->GetBaseCon()->GetIPAddr(), client->GetBaseCon()->GetPort(), buf.Byte(), response.Byte())
@@ -85,14 +85,14 @@ int main(int argc, char *argv[])
             this_thread::sleep_for(std::chrono::milliseconds(100)); // 睡眠
             count++;
         }
-        client->Release();
-        clients.erase(i);
-        delete client;
+        session->Release();
+        sessions.erase(i);
+        delete session;
         num -= 1;
         return;
     };
 
-    auto testDelay = [&](int i, TCPProtocolClient *client) -> void
+    auto testDelay = [&](int i, CustomWebSocketSession *session) -> void
     {
         unsigned long count = 0;
         while (!isStop)
@@ -100,7 +100,7 @@ int main(int argc, char *argv[])
             if (count % 10 != 0)
             {
                 Buffer buf("332112", 6);
-                if (client->AsyncSend(buf))
+                if (session->AsyncSend(buf))
                 {
                     // cout << fmt::format("AsyncSendData To {}:{} ,SendData={}",
                     //                     client->GetBaseCon()->GetIPAddr(), client->GetBaseCon()->GetPort(), buf.Byte())
@@ -115,52 +115,51 @@ int main(int argc, char *argv[])
             {
 
                 auto start = chrono::steady_clock::now();
-
                 Buffer buf("AwaitRequest", 12), response;
-                if (client->AwaitSend(buf, response))
+                if (session->AwaitSend(buf, response))
                 {
+                    auto end = chrono::steady_clock::now();
+                    auto delay = chrono::duration_cast<chrono::milliseconds>(end - start);
+                    cout << "AwaitSend delay:" << delay.count() << "ms\n";
+
                     cout << fmt::format("count={} ,AwaitSendData To {}:{} ,SendData={}  ,And ResponseData={}",
-                                        count, client->GetBaseCon()->GetIPAddr(), client->GetBaseCon()->GetPort(), buf.Byte(), response.Byte())
+                                        count, session->GetBaseClient()->GetBaseCon()->GetIPAddr(), session->GetBaseClient()->GetBaseCon()->GetPort(), buf.Byte(), response.Byte())
                          << endl;
                 }
                 else
                 {
                     break;
                 }
-
-                auto end = chrono::steady_clock::now();
-
-                auto delay = chrono::duration_cast<chrono::milliseconds>(end - start);
-                cout << "AwaitSend delay:" << delay.count() << "ms\n";
             }
 
             this_thread::sleep_for(std::chrono::milliseconds(100)); // 睡眠
             count++;
         }
-        client->Release();
-        clients.erase(i);
-        delete client;
+        session->Release();
+        sessions.erase(i);
+        delete session;
         num -= 1;
         return;
     };
 
     for (int i = 0; i < num; i++)
     {
-        TCPProtocolClient *client = new CustomTCPProtocolClient();
+        auto session = new CustomWebSocketSession();
 
-        // client->BindMessageCallBack(bind(&PrintMessage, placeholders::_1, placeholders::_2, placeholders::_3));
-        client->BindCloseCallBack(bind(&PrintCloseConnect, placeholders::_1));
-        if (!client->Connet("127.0.0.1", 8888))
+        if (!session->Connect("127.0.0.1", 8888))
         {
             perror("connect error !");
             return -1;
         }
-        clients[i] = client;
+        if (i == 0)
+            session->BindRecvDataCallBack(bind(&PrintMessage, placeholders::_1, placeholders::_2, placeholders::_3));
+        session->BindSessionCloseCallBack(bind(&PrintCloseConnect, placeholders::_1));
+        sessions[i] = session;
     }
 
     for (int i = 0; i < num; i++)
     {
-        TCPProtocolClient *client = clients[i];
+        auto session = sessions[i];
         if ((i + 1) % 50 == 0 || i == num - 1)
         {
             cout << "currentThreadNum:" << i + 1 << "\n";
@@ -168,12 +167,12 @@ int main(int argc, char *argv[])
 
         if (i == 0)
         {
-            thread T(testDelay, i, client);
+            thread T(testDelay, i, session);
             T.detach();
         }
         else
         {
-            thread T(test, i, client);
+            thread T(test, i, session);
             // this_thread::sleep_for(std::chrono::milliseconds((int)(30000 / float(num)) * i)); // 睡眠2秒
             T.detach();
         }

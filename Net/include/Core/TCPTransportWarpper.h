@@ -1,5 +1,7 @@
+
 /*
-	TCP协议下的传输层相关代码
+	该文件是对TCP传输层协议下的基础连接对象的封装
+	其中包含一个TCP连接监听器，TCP连接客户端
  */
 
 #pragma once
@@ -66,10 +68,10 @@ enum SocketType
 	UDP = 2
 };
 
-class Net
+class BaseTransportConnection
 {
 public:
-	Net(SocketType type = SocketType::TCP, bool isclient = false);
+	BaseTransportConnection(SocketType type = SocketType::TCP, bool isclient = false);
 
 #ifdef __linux__
 	EXPORT_FUNC int GetFd();
@@ -104,14 +106,14 @@ protected:
 	bool _isclient;
 };
 
-// 客户端(连接对象)
-class TCPNetClient : public Net
+// TCP传输层客户端(连接对象)
+class TCPTransportConnection : public BaseTransportConnection
 {
 
 public:
-	EXPORT_FUNC TCPNetClient();
-	EXPORT_FUNC ~TCPNetClient();
-	EXPORT_FUNC bool Connet(const std::string &IP, uint16_t Port);
+	EXPORT_FUNC TCPTransportConnection();
+	EXPORT_FUNC ~TCPTransportConnection();
+	EXPORT_FUNC bool Connect(const std::string &IP, uint16_t Port);
 #ifdef __linux__
 	EXPORT_FUNC void Apply(const int fd, const sockaddr_in &sockaddr, const SocketType type);
 #elif _WIN32
@@ -121,8 +123,8 @@ public:
 	EXPORT_FUNC bool Send(const Buffer &buffer);
 	EXPORT_FUNC int Read(Buffer &buffer, int length);
 
-	EXPORT_FUNC void BindBufferCallBack(std::function<void(TCPNetClient *, Buffer *)> callback);
-	EXPORT_FUNC void BindRDHUPCallBack(std::function<void(TCPNetClient *)> callback);
+	EXPORT_FUNC void BindBufferCallBack(std::function<void(TCPTransportConnection *, Buffer *)> callback);
+	EXPORT_FUNC void BindRDHUPCallBack(std::function<void(TCPTransportConnection *)> callback);
 
 	EXPORT_FUNC SafeQueue<Buffer *> &GetRecvData();
 	EXPORT_FUNC SafeQueue<Buffer *> &GetSendData();
@@ -142,22 +144,22 @@ private:
 	SafeQueue<Buffer *> _SendDatas;
 
 private:
-	std::function<void(TCPNetClient *, Buffer *)> _callbackBuffer;
-	std::function<void(TCPNetClient *)> _callbackRDHUP;
+	std::function<void(TCPTransportConnection *, Buffer *)> _callbackBuffer;
+	std::function<void(TCPTransportConnection *)> _callbackRDHUP;
 	std::mutex _SendResMtx;
 };
 
-// 监听器
-class TCPNetListener : public Net
+// TCP传输层监听器
+class TCPTransportListener : public BaseTransportConnection
 {
 
 public:
-	EXPORT_FUNC TCPNetListener();
-	EXPORT_FUNC ~TCPNetListener();
+	EXPORT_FUNC TCPTransportListener();
+	EXPORT_FUNC ~TCPTransportListener();
 	EXPORT_FUNC bool Listen(const std::string &IP, int Port);
 	EXPORT_FUNC bool ReleaseListener();
 	EXPORT_FUNC bool ReleaseClients();
-	EXPORT_FUNC void BindAcceptCallBack(std::function<void(TCPNetClient *)> callback);
+	EXPORT_FUNC void BindAcceptCallBack(std::function<void(TCPTransportConnection *)> callback);
 
 public:
 #ifdef __linux__
@@ -169,10 +171,10 @@ public:
 #endif
 
 private:
-	std::map<int, TCPNetClient *> clients;
+	std::map<int, TCPTransportConnection *> clients;
 
 private:
-	std::function<void(TCPNetClient *)> _callbackAccept;
+	std::function<void(TCPTransportConnection *)> _callbackAccept;
 };
 
 // }

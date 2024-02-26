@@ -1,4 +1,4 @@
-#include "Core/TcpTransportWarpper.h"
+#include "Core/TCPTransportWarpper.h"
 #include "Core/NetCoredef.h"
 
 using namespace std;
@@ -73,29 +73,29 @@ SOCKET NewClientSocket(const std::string &IP, uint16_t socket_port, int protocol
 }
 #endif
 
-Net::Net(SocketType type, bool isclient) : _type(type), _isclient(isclient)
+BaseTransportConnection::BaseTransportConnection(SocketType type, bool isclient) : _type(type), _isclient(isclient)
 {
 }
 #ifdef __linux__
-int Net::GetFd()
+int BaseTransportConnection::GetFd()
 {
 	return this->_fd;
 }
 #elif _WIN32
-SOCKET Net::GetSocket()
+SOCKET BaseTransportConnection::GetSocket()
 {
 	return this->_socket;
 }
 #endif
-SocketType Net::GetType()
+SocketType BaseTransportConnection::GetType()
 {
 	return this->_type;
 }
-sockaddr_in Net::GetAddr() { return _addr; }
-char *Net::GetIPAddr() { return inet_ntoa(_addr.sin_addr); }
-uint16_t Net::GetPort() { return ntohs(_addr.sin_port); }
-NetType Net::GetNetType() { return _isclient ? NetType::Client : NetType::Listener; }
-bool Net::ValidSocket()
+sockaddr_in BaseTransportConnection::GetAddr() { return _addr; }
+char *BaseTransportConnection::GetIPAddr() { return inet_ntoa(_addr.sin_addr); }
+uint16_t BaseTransportConnection::GetPort() { return ntohs(_addr.sin_port); }
+NetType BaseTransportConnection::GetNetType() { return _isclient ? NetType::Client : NetType::Listener; }
+bool BaseTransportConnection::ValidSocket()
 {
 #ifdef __linux__
 	return this->_fd > 0;
@@ -104,17 +104,17 @@ bool Net::ValidSocket()
 #endif
 }
 
-TCPNetListener::TCPNetListener() : Net(SocketType::TCP, false)
+TCPTransportListener::TCPTransportListener() : BaseTransportConnection(SocketType::TCP, false)
 {
 }
-TCPNetListener::~TCPNetListener()
+TCPTransportListener::~TCPTransportListener()
 {
 	if (!ValidSocket())
 		return;
 	ReleaseListener();
 }
 
-bool TCPNetListener::Listen(const string &IP, int Port)
+bool TCPTransportListener::Listen(const string &IP, int Port)
 {
 	if (ValidSocket())
 		ReleaseListener();
@@ -155,7 +155,7 @@ bool TCPNetListener::Listen(const string &IP, int Port)
 	return true;
 }
 
-bool TCPNetListener::ReleaseListener()
+bool TCPTransportListener::ReleaseListener()
 {
 #ifdef __linux__
 	if (close(_fd) == -1)
@@ -174,23 +174,23 @@ bool TCPNetListener::ReleaseListener()
 	return true;
 }
 
-bool TCPNetListener::ReleaseClients()
+bool TCPTransportListener::ReleaseClients()
 {
 	for (auto it : clients)
 	{
-		TCPNetClient *client = it.second;
+		TCPTransportConnection *client = it.second;
 		client->Release();
 	}
 	return true;
 }
 
-void TCPNetListener::BindAcceptCallBack(function<void(TCPNetClient *)> callback)
+void TCPTransportListener::BindAcceptCallBack(function<void(TCPTransportConnection *)> callback)
 {
 	this->_callbackAccept = callback;
 }
 
 #ifdef __linux__
-void TCPNetListener::OnEPOLLIN(int fd)
+void TCPTransportListener::OnEPOLLIN(int fd)
 {
 	if (fd == this->_fd)
 	{
@@ -201,9 +201,9 @@ void TCPNetListener::OnEPOLLIN(int fd)
 			int clientFd = accept(this->_fd, (struct sockaddr *)&addr, &length);
 			if (clientFd != -1)
 			{
-				TCPNetClient *client = new TCPNetClient();
+				TCPTransportConnection *client = new TCPTransportConnection();
 				client->Apply(clientFd, addr, this->_type);
-				this->clients.insert(pair<int, TCPNetClient *>(clientFd, client));
+				this->clients.insert(pair<int, TCPTransportConnection *>(clientFd, client));
 				cout << "tcpclient connect ,address: " << inet_ntoa(addr.sin_addr) << ":" << ntohs(addr.sin_port) << endl;
 				if (_callbackAccept)
 					_callbackAccept(client);
@@ -217,13 +217,13 @@ void TCPNetListener::OnEPOLLIN(int fd)
 	}
 }
 #elif _WIN32
-void TCPNetListener::OnACCEPT(SOCKET socket, sockaddr_in *addr)
+void TCPTransportListener::OnACCEPT(SOCKET socket, sockaddr_in *addr)
 {
 	if (socket != INVALID_SOCKET)
 	{
-		TCPNetClient *client = new TCPNetClient();
+		TCPTransportConnection *client = new TCPTransportConnection();
 		client->Apply(socket, *addr, this->_type);
-		this->clients.insert(pair<int, TCPNetClient *>(socket, client));
+		this->clients.insert(pair<int, TCPTransportConnection *>(socket, client));
 		cout << "client connect ,address: " << inet_ntoa(addr->sin_addr) << ":" << ntohs(addr->sin_port) << endl;
 		if (_callbackAccept)
 			_callbackAccept(client);
@@ -235,14 +235,14 @@ void TCPNetListener::OnACCEPT(SOCKET socket, sockaddr_in *addr)
 }
 #endif
 
-void TCPNetListener::OnRDHUP()
+void TCPTransportListener::OnRDHUP()
 {
 }
 
-TCPNetClient::TCPNetClient() : Net(SocketType::TCP, true)
+TCPTransportConnection::TCPTransportConnection() : BaseTransportConnection(SocketType::TCP, true)
 {
 }
-TCPNetClient::~TCPNetClient()
+TCPTransportConnection::~TCPTransportConnection()
 {
 #ifdef __linux__
 	if (_fd <= 0)
@@ -253,7 +253,7 @@ TCPNetClient::~TCPNetClient()
 	Release();
 }
 
-bool TCPNetClient::Connet(const std::string &IP, uint16_t Port)
+bool TCPTransportConnection::Connect(const std::string &IP, uint16_t Port)
 {
 	if (ValidSocket())
 		Release();
@@ -298,7 +298,7 @@ bool TCPNetClient::Connet(const std::string &IP, uint16_t Port)
 	return true;
 }
 #ifdef __linux__
-void TCPNetClient::Apply(const int fd, const sockaddr_in &sockaddr, const SocketType type)
+void TCPTransportConnection::Apply(const int fd, const sockaddr_in &sockaddr, const SocketType type)
 {
 	if (ValidSocket())
 		Release();
@@ -309,7 +309,7 @@ void TCPNetClient::Apply(const int fd, const sockaddr_in &sockaddr, const Socket
 	NetCore->AddNetFd(this);
 }
 #elif _WIN32
-void TCPNetClient::Apply(const SOCKET socket, const sockaddr_in &sockaddr, const SocketType type)
+void TCPTransportConnection::Apply(const SOCKET socket, const sockaddr_in &sockaddr, const SocketType type)
 {
 	if (ValidSocket())
 		Release();
@@ -321,7 +321,7 @@ void TCPNetClient::Apply(const SOCKET socket, const sockaddr_in &sockaddr, const
 }
 #endif
 
-bool TCPNetClient::Release()
+bool TCPTransportConnection::Release()
 {
 	bool result = false;
 	NetCore->DelNetFd(this);
@@ -345,7 +345,7 @@ bool TCPNetClient::Release()
 	return result;
 }
 
-bool TCPNetClient::Send(const Buffer &buffer)
+bool TCPTransportConnection::Send(const Buffer &buffer)
 {
 	try
 	{
@@ -365,7 +365,7 @@ bool TCPNetClient::Send(const Buffer &buffer)
 }
 
 #ifdef __linux__
-int TCPNetClient::Read(Buffer &buffer, int length)
+int TCPTransportConnection::Read(Buffer &buffer, int length)
 {
 	Buffer buf(length);
 	int result = ::recv(_fd, buf.Data(), length, MSG_NOSIGNAL);
@@ -375,7 +375,7 @@ int TCPNetClient::Read(Buffer &buffer, int length)
 }
 
 #elif _WIN32
-int TCPNetClient::Read(Buffer &buffer, int length)
+int TCPTransportConnection::Read(Buffer &buffer, int length)
 {
 	// Buffer buf(length);
 	// int result = ::recv(_fd, buf.Data(), length, MSG_NOSIGNAL);
@@ -386,20 +386,20 @@ int TCPNetClient::Read(Buffer &buffer, int length)
 }
 #endif
 
-void TCPNetClient::BindBufferCallBack(function<void(TCPNetClient *, Buffer *)> callback)
+void TCPTransportConnection::BindBufferCallBack(function<void(TCPTransportConnection *, Buffer *)> callback)
 {
 	_callbackBuffer = callback;
 }
-void TCPNetClient::BindRDHUPCallBack(function<void(TCPNetClient *)> callback)
+void TCPTransportConnection::BindRDHUPCallBack(function<void(TCPTransportConnection *)> callback)
 {
 	_callbackRDHUP = callback;
 }
-SafeQueue<Buffer *> &TCPNetClient::GetRecvData() { return _RecvDatas; }
-SafeQueue<Buffer *> &TCPNetClient::GetSendData() { return _SendDatas; }
-std::mutex &TCPNetClient::GetSendMtx() { return _SendResMtx; }
+SafeQueue<Buffer *> &TCPTransportConnection::GetRecvData() { return _RecvDatas; }
+SafeQueue<Buffer *> &TCPTransportConnection::GetSendData() { return _SendDatas; }
+std::mutex &TCPTransportConnection::GetSendMtx() { return _SendResMtx; }
 
 #ifdef __linux__
-void TCPNetClient::OnEPOLLIN(int fd)
+void TCPTransportConnection::OnEPOLLIN(int fd)
 {
 	auto read = [&](Buffer &buf, int length) -> bool
 	{
@@ -437,11 +437,6 @@ void TCPNetClient::OnEPOLLIN(int fd)
 				}
 				else
 				{
-					// if (!this->AsyncSend(HeartBuffer))
-					// {
-					// 	buf.ReSize(buf.Length() - remaind);
-					// 	return false;
-					// }
 					trycount--;
 				}
 			}
@@ -498,7 +493,7 @@ void TCPNetClient::OnEPOLLIN(int fd)
 	}
 }
 #elif _WIN32
-void TCPNetClient::OnREAD(SOCKET socket, Buffer &buffer)
+void TCPTransportConnection::OnREAD(SOCKET socket, Buffer &buffer)
 {
 	if (socket != this->_socket)
 		return;
@@ -590,7 +585,7 @@ void TCPNetClient::OnREAD(SOCKET socket, Buffer &buffer)
 }
 #endif
 
-void TCPNetClient::OnRDHUP()
+void TCPTransportConnection::OnRDHUP()
 {
 	cout << "OnRDHUP" << endl;
 	// NetCore->DelNetFd(this);

@@ -1,6 +1,7 @@
 #pragma once
 
-#include "TCPProtocolEndPoint.h"
+#include "TCPEndPoint.h"
+#include "SpinLock.h"
 
 enum class WSOpcodeType : uint8_t
 {
@@ -12,32 +13,29 @@ enum class WSOpcodeType : uint8_t
     WSOpcode_Pong = 0xA,
 };
 
-struct WebSocketPakage
+struct WebSocketPackage
 {
-    bool enable = true;
-
-    int seq = 0;
-    int ack = -1;
     WSOpcodeType opcode = WSOpcodeType::WSOpcode_Binary;
     Buffer buffer;
 };
 
-// 基于WebSocket应用层协议的客户端
-class WebSocketClient : public TCPProtocolClient
+// 基于TCPx协议的WebSocket应用层客户端客户端封装
+class WebSocketClient : public TCPEndPoint
 {
 public:
-    EXPORT_FUNC WebSocketClient(TCPNetClient *con = nullptr);
+    EXPORT_FUNC WebSocketClient(TCPTransportConnection *con = nullptr);
     EXPORT_FUNC ~WebSocketClient();
 
 public:
-    EXPORT_FUNC virtual bool Connet(const std::string &IP, uint16_t Port);
+    EXPORT_FUNC virtual bool Connect(const std::string &IP, uint16_t Port);
     EXPORT_FUNC virtual bool Release();
 
     EXPORT_FUNC virtual bool OnRecvBuffer(Buffer *buffer); // 用于绑定网络层(TCP/UDP)触发的Buffer回调
     EXPORT_FUNC virtual bool OnConnectClose();
 
-    EXPORT_FUNC virtual bool AsyncSend(const Buffer &buffer, int ack = -1);     // 异步发送，不关心返回结果
-    EXPORT_FUNC virtual bool AwaitSend(const Buffer &buffer, Buffer &response); // 等待返回结果的发送，关心返回的结果
+    EXPORT_FUNC virtual void OnBindMessageCallBack();
+
+    EXPORT_FUNC virtual bool Send(const Buffer &buffer);
 
 public:
     EXPORT_FUNC virtual bool TryHandshake(uint32_t timeOutMs);
@@ -45,16 +43,17 @@ public:
     EXPORT_FUNC virtual CheckHandshakeStatus CheckHandshakeConfirmMsg(Buffer &buffer);
 
 private:
-    void ProcessPakage();
+    void ProcessPakage(WebSocketPackage *newpak = nullptr);
+    SpinLock _ProcessLock;
 
 private:
-    std::atomic<int> seq;
-    SafeQueue<WebSocketPakage *> _RecvPaks;
-    SafeQueue<WebSocketPakage *> _SendPaks;
-    SafeMap<int, AwaitTask *> _AwaitMap; // seq->AwaitTask
-    Buffer cacheBuffer;                  // 数据帧解析缓冲
+    SafeQueue<WebSocketPackage *> _RecvPaks;
+    SafeQueue<WebSocketPackage *> _SendPaks;
 
-    // 握手用
+    Buffer cacheBuffer;         // 握手消息/数据帧解析缓冲
+    WebSocketPackage *cachePak; // 多帧数据组成的完整帧缓冲
+
+    // 主动握手用
     std::string _SecWsKey;
     std::mutex _tryHandshakeMutex;
     std::condition_variable _tryHandshakeCV;

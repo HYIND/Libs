@@ -54,6 +54,7 @@ class Buffer
 
 public:
     EXPORT_FUNC Buffer();
+    EXPORT_FUNC Buffer(const Buffer &other);
     EXPORT_FUNC Buffer(const int length);
     EXPORT_FUNC Buffer(const char *source, int length);
     EXPORT_FUNC Buffer(const std::string &source);

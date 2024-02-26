@@ -3,7 +3,17 @@
 
 using namespace std;
 
-Buffer::Buffer() {}
+Buffer::Buffer()
+{
+    _buf = nullptr;
+    _pos = 0;
+    _length = 0;
+}
+
+Buffer::Buffer(const Buffer &other)
+{
+    CopyFromBuf(other);
+}
 
 Buffer::Buffer(const int length)
 {
@@ -137,7 +147,7 @@ int Buffer::Append(Buffer &other, int length)
 
     char *newBuf = new char[_length + truthAppend];
     memcpy(newBuf, _buf, _length);
-    memcpy(newBuf + _length, other.Data(), truthAppend);
+    memcpy(newBuf + _length, other.Byte() + other.Postion(), truthAppend);
 
     SAFE_DELETE_ARRAY(_buf);
     _buf = newBuf;
@@ -215,14 +225,16 @@ void Buffer::Unshift(const void *buf, const int length)
         return;
 
     char *oribuf = _buf;
-    int oriLength = _length;
 
-    _buf = new char[length];
+    int oriLength = _length;
+    int newLength = length + oriLength;
+
+    _buf = new char[newLength];
+    memcpy(_buf, buf, length);
     if (oribuf)
         memcpy(_buf + length, oribuf, oriLength);
 
-    memcpy(_buf, buf, length);
-    _length = length;
+    _length = newLength;
     _pos = 0;
 
     SAFE_DELETE_ARRAY(oribuf);
