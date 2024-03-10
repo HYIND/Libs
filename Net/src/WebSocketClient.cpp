@@ -48,6 +48,17 @@ bool WebSocketClient::Release()
     cachePak->buffer.Release();
     _SecWsKey.clear();
 
+    WebSocketPackage *pak = nullptr;
+    while (_RecvPaks.dequeue(pak))
+    {
+        SAFE_DELETE(pak);
+    }
+    pak = nullptr;
+    while (_SendPaks.dequeue(pak))
+    {
+        SAFE_DELETE(pak);
+    }
+
     return result;
 }
 
@@ -120,6 +131,7 @@ void WebSocketClient::OnBindMessageCallBack()
         }
         catch (const std::exception &e)
         {
+            _ProcessLock.unlock();
             std::cerr << e.what() << '\n';
         }
         _ProcessLock.unlock();

@@ -244,12 +244,6 @@ TCPTransportConnection::TCPTransportConnection() : BaseTransportConnection(Socke
 }
 TCPTransportConnection::~TCPTransportConnection()
 {
-#ifdef __linux__
-	if (_fd <= 0)
-#elif _WIN32
-	if (_socket == INVALID_SOCKET)
-#endif
-		return;
 	Release();
 }
 

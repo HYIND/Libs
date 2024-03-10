@@ -49,8 +49,11 @@ protected:
 private:
     EXPORT_FUNC bool Send(const Buffer &buffer, int ack = -1);
     EXPORT_FUNC void ProcessPakage(CustomWebSocketSessionPakage *newPak = nullptr);
+    SpinLock _ProcessLock;
 
 private:
+    SafeQueue<CustomWebSocketSessionPakage *> _RecvPaks;
+
     std::atomic<int> seq;
     SafeMap<int, AwaitTask *> _AwaitMap; // seq->AwaitTask
 };

@@ -263,6 +263,7 @@ void CustomTcpSession::ProcessPakage(CustomPackage *newPak)
                 // printf("notify_all , pak->ack:%d\n", pak->ack);
                 task->_cv.notify_all();
             }
+            SAFE_DELETE(newPak);
         }
         else
         {
@@ -304,6 +305,7 @@ void CustomTcpSession::OnBindRecvDataCallBack()
         }
         catch (const std::exception &e)
         {
+            _ProcessLock.unlock();
             std::cerr << e.what() << '\n';
         }
         _ProcessLock.unlock();

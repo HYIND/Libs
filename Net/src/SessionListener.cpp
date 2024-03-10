@@ -12,6 +12,7 @@ NetWorkSessionListener::NetWorkSessionListener(SessionType type)
         break;
     case SessionType::CustomWebSockectSession:
         BaseListener.SetProtocol(TCPNetProtocol::WebSocket);
+        break;
     default:
         std::cout << "SessionListener: SessionType Error!\n";
         break;

@@ -75,6 +75,13 @@ bool CustomWebSocketSession::Release()
             map.clear();
         });
 
+    CustomWebSocketSessionPakage *pak = nullptr;
+    while (_RecvPaks.dequeue(pak))
+    {
+        _RecvPaks.dequeue(pak);
+        SAFE_DELETE(pak);
+    }
+
     return result;
 }
 
@@ -117,8 +124,8 @@ bool CustomWebSocketSession::AwaitSend(const Buffer &buffer, Buffer &response)
                 auto it = map.find(task->seq);
                 if (it != map.end())
                     map.erase(it);
-                delete task;
             });
+        SAFE_DELETE(task);
         return result;
     }
     catch (const std::exception &e)
@@ -142,14 +149,28 @@ bool CustomWebSocketSession::OnRecvData(Buffer *buffer)
     CustomWebSocketSessionPakage *pak = new CustomWebSocketSessionPakage();
     pak->buffer.CopyFromBuf(*buffer);
     ShiftPakHeader(pak);
+    _ProcessLock.lock();
     ProcessPakage(pak);
+    _ProcessLock.unlock();
 
     return true;
 }
 
 void CustomWebSocketSession::OnBindRecvDataCallBack()
 {
-    return;
+    if (_ProcessLock.trylock())
+    {
+        try
+        {
+            ProcessPakage();
+        }
+        catch (const std::exception &e)
+        {
+            _ProcessLock.unlock();
+            std::cerr << e.what() << '\n';
+        }
+        _ProcessLock.unlock();
+    }
 }
 
 void CustomWebSocketSession::OnBindSessionCloseCallBack()
@@ -198,34 +219,54 @@ bool CustomWebSocketSession::Send(const Buffer &buffer, int ack)
 
 void CustomWebSocketSession::ProcessPakage(CustomWebSocketSessionPakage *newPak)
 {
-    if (!newPak)
-        return;
-
-    if (newPak->ack != -1)
+    if (newPak)
     {
-        AwaitTask *task = nullptr;
-        if (_AwaitMap.Find(newPak->ack, task))
+        if (newPak->ack != -1)
         {
-            if (task->respsonse)
-                task->respsonse->CopyFromBuf(newPak->buffer);
-
-            int count = 0;
-            while (!task->status == -1 && count < 5)
+            AwaitTask *task = nullptr;
+            if (_AwaitMap.Find(newPak->ack, task))
             {
-                count++;
-                usleep(10 * 1000);
+                if (task->respsonse)
+                    task->respsonse->CopyFromBuf(newPak->buffer);
+
+                int count = 0;
+                while (!task->status == -1 && count < 5)
+                {
+                    count++;
+                    usleep(10 * 1000);
+                }
+                usleep(5 * 1000);
+                // printf("notify_all , pak->ack:%d\n", pak->ack);
+                task->_cv.notify_all();
             }
-            usleep(5 * 1000);
-            // printf("notify_all , pak->ack:%d\n", pak->ack);
-            task->_cv.notify_all();
+            SAFE_DELETE(newPak);
+        }
+        else
+        {
+            if (_RecvPaks.size() > 300)
+            {
+                CustomWebSocketSessionPakage *pak = nullptr;
+                if (_RecvPaks.dequeue(pak))
+                    SAFE_DELETE(pak);
+            }
+            _RecvPaks.enqueue(newPak);
         }
     }
-    else if (_callbackRecvData)
+
+    int count = 10;
+    CustomWebSocketSessionPakage *pak = nullptr;
+    while (_RecvPaks.front(pak) && count > 0)
     {
-        Buffer resposne;
-        _callbackRecvData(this, &newPak->buffer, &resposne);
-        if (resposne.Length() > 0)
-            Send(resposne, newPak->seq);
-        resposne.Release();
+        if (_callbackRecvData)
+        {
+            Buffer resposne;
+            _callbackRecvData(this, &pak->buffer, &resposne);
+            if (resposne.Length() > 0)
+                Send(resposne, pak->seq);
+            resposne.Release();
+            _RecvPaks.dequeue(pak);
+            SAFE_DELETE(pak);
+        }
+        count--;
     }
 }
