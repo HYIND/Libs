@@ -86,20 +86,12 @@ bool PureTCPClient::TryHandshake(uint32_t timeOutMs)
 
 CheckHandshakeStatus PureTCPClient::CheckHandshakeTryMsg(Buffer &buffer)
 {
-    if (isHandshakeComplete)
-    {
-        return CheckHandshakeStatus::None;
-    }
-
+    isHandshakeComplete = true;
     return CheckHandshakeStatus::Success;
 }
 
 CheckHandshakeStatus PureTCPClient::CheckHandshakeConfirmMsg(Buffer &buffer)
 {
-    if (isHandshakeComplete)
-    {
-        return CheckHandshakeStatus::None;
-    }
-
+    isHandshakeComplete = true;
     return CheckHandshakeStatus::Success;
 }

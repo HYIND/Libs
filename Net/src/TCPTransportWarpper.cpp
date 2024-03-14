@@ -477,6 +477,8 @@ void TCPTransportConnection::OnEPOLLIN(int fd)
 		if (buf->Length() - buf->Postion() == 0)
 		{
 			_RecvDatas.dequeue(buf);
+			if (!ValidSocket())
+				return;
 			SAFE_DELETE(buf);
 			continue;
 		}
@@ -581,7 +583,7 @@ void TCPTransportConnection::OnREAD(SOCKET socket, Buffer &buffer)
 
 void TCPTransportConnection::OnRDHUP()
 {
-	cout << "OnRDHUP" << endl;
+	// cout << "OnRDHUP" << endl;
 	// NetCore->DelNetFd(this);
 
 	if (_callbackRDHUP)

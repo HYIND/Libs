@@ -1,6 +1,7 @@
 #include "Session/SessionListener.h"
 #include "Session/CustomTcpSession.h"
 #include "Session/CustomWebSocketSession.h"
+#include "Session/PureWebSocketSession.h"
 
 NetWorkSessionListener::NetWorkSessionListener(SessionType type)
     : _sessiontype(type)
@@ -11,6 +12,7 @@ NetWorkSessionListener::NetWorkSessionListener(SessionType type)
         BaseListener.SetProtocol(TCPNetProtocol::PureTCP);
         break;
     case SessionType::CustomWebSockectSession:
+    case SessionType::PureWebSocketSession:
         BaseListener.SetProtocol(TCPNetProtocol::WebSocket);
         break;
     default:
@@ -50,10 +52,18 @@ void NetWorkSessionListener::RecvClient(TCPEndPoint *waitClient)
     break;
     case SessionType::CustomWebSockectSession:
     {
-        WebSocketClient *TCPClient = (WebSocketClient *)waitClient;
-        BaseNetWorkSession *session = new CustomWebSocketSession(TCPClient);
+        WebSocketClient *WSClient = (WebSocketClient *)waitClient;
+        BaseNetWorkSession *session = new CustomWebSocketSession(WSClient);
         waitSessions.emplace(session);
-        TCPClient->BindMessageCallBack(std::bind(&NetWorkSessionListener::Handshake, this, std::placeholders::_1, std::placeholders::_2));
+        WSClient->BindMessageCallBack(std::bind(&NetWorkSessionListener::Handshake, this, std::placeholders::_1, std::placeholders::_2));
+    }
+    break;
+    case SessionType::PureWebSocketSession:
+    {
+        WebSocketClient *WSClient = (WebSocketClient *)waitClient;
+        BaseNetWorkSession *session = new PureWebSocketSession(WSClient);
+        waitSessions.emplace(session);
+        WSClient->BindMessageCallBack(std::bind(&NetWorkSessionListener::Handshake, this, std::placeholders::_1, std::placeholders::_2));
     }
     break;
     default:

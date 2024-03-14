@@ -95,8 +95,18 @@ bool WebSocketClient::OnRecvBuffer(Buffer *buffer)
                 WebSocketPackage *newPak = cachePak;
                 cachePak = new WebSocketPackage();
 
-                std::lock_guard<SpinLock> lock(_ProcessLock);
-                ProcessPakage(newPak);
+                if (_ProcessLock.trylock())
+                {
+                    try
+                    {
+                        ProcessPakage(newPak);
+                    }
+                    catch (const std::exception &e)
+                    {
+                        std::cerr << e.what() << '\n';
+                    }
+                    _ProcessLock.unlock();
+                }
             }
         }
         else if (dataFameResult == -1)
@@ -131,7 +141,6 @@ void WebSocketClient::OnBindMessageCallBack()
         }
         catch (const std::exception &e)
         {
-            _ProcessLock.unlock();
             std::cerr << e.what() << '\n';
         }
         _ProcessLock.unlock();
@@ -297,8 +306,6 @@ void WebSocketClient::ProcessPakage(WebSocketPackage *newpak)
             Buffer PongBuf;
             WebSocketAnalysisHelp::GenerateSpecialDataFrameBuffer((uint8_t)WSOpcodeType::WSOpcode_Pong, PongBuf, &(pak->buffer));
             BaseCon->Send(PongBuf);
-            _RecvPaks.dequeue(pak);
-            SAFE_DELETE(pak);
         }
         break;
         case WSOpcodeType::WSOpcode_Pong:
@@ -310,33 +317,33 @@ void WebSocketClient::ProcessPakage(WebSocketPackage *newpak)
             Buffer CloseBuf;
             WebSocketAnalysisHelp::GenerateSpecialDataFrameBuffer((uint8_t)WSOpcodeType::WSOpcode_Close, CloseBuf, &(pak->buffer));
             BaseCon->Send(CloseBuf);
-            _RecvPaks.dequeue(pak);
-            SAFE_DELETE(pak);
         }
         break;
         case WSOpcodeType::WSOpcode_Continue:
         {
+            std::cout << "error package opcode :WSOpcode_Continue\n";
         }
         break;
         case WSOpcodeType::WSOpcode_Text:
         {
             if (_callbackMessage)
                 _callbackMessage(this, &pak->buffer);
-            _RecvPaks.dequeue(pak);
-            SAFE_DELETE(pak);
         }
         break;
         case WSOpcodeType::WSOpcode_Binary:
         {
             if (_callbackMessage)
                 _callbackMessage(this, &pak->buffer);
-            _RecvPaks.dequeue(pak);
-            SAFE_DELETE(pak);
         }
         break;
         default:
+            std::cout << "error package opcode :" << (int)pak->opcode << "\n";
             break;
         }
+        if (!isHandshakeComplete)
+            return;
+        _RecvPaks.dequeue(pak);
+        SAFE_DELETE(pak);
         count--;
     }
 }

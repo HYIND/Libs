@@ -185,12 +185,15 @@ void NetCoreProcess::Loop()
 		}
 		for (int i = 0; i < number; i++)
 		{
-			EventProcess(_events[i]);
+			try
+			{
+				EventProcess(_events[i]);
+			}
+			catch (const std::exception &e)
+			{
+				std::cerr << "EventLoop unknown exception:" << e.what() << '\n';
+			}
 		}
-		int i = 0;
-		i--;
-		if (i == 1)
-			_isrunning = false;
 	}
 	// close(timefd);
 	close(_epoll);
@@ -200,6 +203,8 @@ int NetCoreProcess::EventProcess(epoll_event &event)
 {
 	int fd = ((NetCore_EpollData *)event.data.ptr)->fd;
 	BaseTransportConnection *Con = ((NetCore_EpollData *)event.data.ptr)->Con;
+	if (fd <= 0 || !Con->ValidSocket())
+		return -1;
 	uint32_t events = event.events;
 
 	/*     if ((event.data.fd == timefd) && (event.events & EPOLLIN))

@@ -47,14 +47,15 @@ bool CustomWebSocketSession::Connect(const std::string &IP, uint16_t Port)
     if (!result)
         return false;
 
+    isHandshakeComplete = true;
     BaseClient->BindMessageCallBack(std::bind(&CustomWebSocketSession::RecvData, this, std::placeholders::_1, std::placeholders::_2));
-    // 尝试握手，超时时间10秒
-    if (!TryHandshake(10 * 1000))
-    {
-        std::cout << "CustomTcpSession::TryHandshake Connect Fail! CloseConnection\n";
-        Release();
-        return false;
-    }
+    /*     // 尝试握手，超时时间10秒
+        if (!TryHandshake(10 * 1000))
+        {
+            std::cout << "CustomTcpSession::TryHandshake Connect Fail! CloseConnection\n";
+            Release();
+            return false;
+        } */
 
     BaseClient->BindCloseCallBack(std::bind(&CustomWebSocketSession::SessionClose, this, std::placeholders::_1));
 
@@ -185,11 +186,13 @@ bool CustomWebSocketSession::TryHandshake(uint32_t timeOutMs)
 
 CheckHandshakeStatus CustomWebSocketSession::CheckHandshakeTryMsg(Buffer &buffer)
 {
+    isHandshakeComplete = true;
     return CheckHandshakeStatus::Success;
 }
 
 CheckHandshakeStatus CustomWebSocketSession::CheckHandshakeConfirmMsg(Buffer &buffer)
 {
+    isHandshakeComplete = true;
     return CheckHandshakeStatus::Success;
 }
 
