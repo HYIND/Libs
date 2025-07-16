@@ -1,3 +1,5 @@
+#pragma once
+
 #include "EndPoint/PureTCPClient.h"
 #include "Session/BaseNetWorkSession.h"
 #include "SpinLock.h"
