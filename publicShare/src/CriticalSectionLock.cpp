@@ -1,5 +1,4 @@
 #include "CriticalSectionLock.h"
-#include <error.h>
 
 #ifdef __linux__
 CriticalSectionLock::CriticalSectionLock() : _attr()
@@ -25,9 +24,32 @@ void CriticalSectionLock::Enter()
     pthread_mutex_lock(&_mutex);
 }
 
-bool CriticalSectionLock::Leave()
+void CriticalSectionLock::Leave()
 {
     pthread_mutex_unlock(&_mutex);
-    return false;
 }
+
+#elif defined(_WIN32)
+
+CriticalSectionLock::CriticalSectionLock() {
+    InitializeCriticalSection(&_cs);
+}
+
+CriticalSectionLock::~CriticalSectionLock() {
+    DeleteCriticalSection(&_cs);
+}
+
+bool CriticalSectionLock::TryEnter() {
+    return TryEnterCriticalSection(&_cs) != 0;
+}
+
+void CriticalSectionLock::Enter() {
+    EnterCriticalSection(&_cs);
+}
+
+void CriticalSectionLock::Leave() {
+    LeaveCriticalSection(&_cs);
+}
+
 #endif
+

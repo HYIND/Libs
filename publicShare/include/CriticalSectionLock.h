@@ -11,7 +11,7 @@ public:
     ~CriticalSectionLock();
     bool TryEnter();
     void Enter();
-    bool Leave();
+    void Leave();
 
 private:
 #ifdef __linux__
