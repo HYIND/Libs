@@ -1,5 +1,4 @@
 #include "Helper/Buffer.h"
-#include "Core/NetCore.h"
 
 using namespace std;
 
