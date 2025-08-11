@@ -279,7 +279,7 @@ void CustomTcpSession::ProcessPakage(CustomPackage *newPak)
 
     int count = 10;
     CustomPackage *pak = nullptr;
-    while (_RecvPaks.front(pak) && count > 0)
+    while (_RecvPaks.dequeue(pak) && count > 0)
     {
         if (_callbackRecvData)
         {
@@ -288,7 +288,7 @@ void CustomTcpSession::ProcessPakage(CustomPackage *newPak)
             if (resposne.Length() > 0)
                 Send(resposne, pak->seq);
             resposne.Release();
-            _RecvPaks.dequeue(pak);
+            // _RecvPaks.dequeue(pak);
             SAFE_DELETE(pak);
         }
         count--;

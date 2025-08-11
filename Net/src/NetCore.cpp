@@ -1,5 +1,6 @@
 #include "Core/NetCoredef.h"
 #include "Core/NetCore.h"
+#include "Core/DeleteLater.h"
 
 using namespace std;
 
@@ -67,6 +68,10 @@ void RunNetCoreLoop(bool isBlock)
 bool NetCoreRunning()
 {
 	return NetCoreProcess::Instance()->Running();
+}
+
+void DeleteLater(DeleteLaterImpl *ptr){
+	NetCoreProcess::Instance()->AddPendingDeletion(ptr);
 }
 
 NetCoreProcess::NetCoreProcess()
@@ -177,7 +182,7 @@ void NetCoreProcess::Loop()
 
 	while (_isrunning)
 	{
-		int number = epoll_wait(_epoll, _events, 800, -1);
+		int number = epoll_wait(_epoll, _events, 800, 100);
 		if (number < 0 && (errno != EINTR))
 		{
 			cout << "_epoll failure\n";
@@ -194,6 +199,7 @@ void NetCoreProcess::Loop()
 				std::cerr << "EventLoop unknown exception:" << e.what() << '\n';
 			}
 		}
+		ProcessPendingDeletions();
 	}
 	// close(timefd);
 	close(_epoll);
@@ -269,6 +275,27 @@ int NetCoreProcess::EventProcess(epoll_event &event)
 	return 1;
 }
 
+void NetCoreProcess::AddPendingDeletion(DeleteLaterImpl *ptr)
+{
+	_pendingDeletions.emplace(ptr);
+}
+
+void NetCoreProcess::ProcessPendingDeletions()
+{
+	std::vector<DeleteLaterImpl *> deletions;
+	_pendingDeletions.EnsureCall(
+		[&](std::vector<DeleteLaterImpl *> &array) -> void
+		{
+			deletions.swap(array); // 取出待删除任务
+		}
+
+	);
+	for (auto ptr : deletions)
+	{
+		delete ptr;
+	}
+}
+
 bool NetCoreProcess::SendRes(TCPTransportConnection *Con)
 {
 	if (!Con->GetSendMtx().try_lock())
@@ -301,7 +328,7 @@ bool NetCoreProcess::SendRes(TCPTransportConnection *Con)
 			{
 				if (result == 0)
 				{
-					cout << "0000000\n";
+					// cout << "0000000\n";
 				}
 				else
 				{
@@ -445,6 +472,7 @@ void NetCoreProcess::Loop()
 			pIOData->NumberOfBytesRecvd = dwByteTransferred;
 			EventProcess(pIOData, bFlag);
 			IODATAMANAGER->ReleaseData(pIOData);
+			ProcessPendingDeletions();
 		}
 	}
 	// close(timefd);

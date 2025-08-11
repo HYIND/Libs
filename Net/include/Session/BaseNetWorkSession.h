@@ -1,8 +1,9 @@
 #pragma once
 
 #include "EndPoint/TCPEndPoint.h"
+#include "Core/DeleteLater.h"
 
-class BaseNetWorkSession
+class BaseNetWorkSession : public DeleteLaterImpl
 {
 
 public:

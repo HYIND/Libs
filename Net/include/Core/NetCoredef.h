@@ -5,9 +5,9 @@
 
 #pragma once
 
+#include "Core/DeleteLater.h"
 #include "TCPTransportWarpper.h"
 #include "ResourcePool.h"
-
 
 #ifdef __linux__
 struct NetCore_EpollData
@@ -129,6 +129,7 @@ public:
 	bool AddNetFd(BaseTransportConnection *Con);
 	bool DelNetFd(BaseTransportConnection *Con);
 	bool SendRes(TCPTransportConnection *Con);
+	void AddPendingDeletion(DeleteLaterImpl* ptr);
 
 private:
 	NetCoreProcess();
@@ -139,6 +140,7 @@ private:
 	int EventProcess(IO_DATA *event, bool bFlag);
 #endif
 	void ThreadEnd();
+	void ProcessPendingDeletions();
 
 #ifdef _WIN32
 private:
@@ -156,6 +158,9 @@ private:
 	HANDLE _HIOCP;
 	SafeMap<Net *, NetCore_SocketData *> _SocketData;
 #endif
+
+    SafeArray<DeleteLaterImpl* > _pendingDeletions;
+    std::mutex _deletionMutex;
 };
 
 bool IsHeartBeat(const Buffer &buf);
