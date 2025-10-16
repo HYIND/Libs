@@ -69,20 +69,12 @@ public:
     template <typename F, typename C, typename... Args>
     EXPORT_FUNC auto submit(F &&f, C &&c, Args &&...args) -> std::future<decltype((c->*f)(args...))>
     {
-        // 创建一个function
-        std::function<decltype((c->*f)(args...))()> func = std::bind(std::forward<F>(f), std::forward<C>(c), std::forward<Args>(args)...); // 连接函数和参数定义，特殊函数类型，避免左右值错误
-        // 封装为packaged_task以便异步操作
-        auto task_ptr = std::make_shared<std::packaged_task<decltype((c->*f)(args...))()>>(func);
 
-        // Warp packaged task into void function
-        std::function<void()> warpper_func =
-            [task_ptr]()
-        {
-            (*task_ptr)();
-        };
-
-        _queue.enqueue(warpper_func);  // 压入安全队列
-        _cv.notify_one();              // 唤醒一个等待中的线程
-        return task_ptr->get_future(); // 返回先前注册future
+        return submit(
+            [c = std::forward<C>(c), f = std::forward<F>(f), ... args = std::forward<Args>(args)]() mutable
+                -> decltype((c->*f)(args...))
+            {
+                return (c->*f)(args...);
+            });
     }
 };
