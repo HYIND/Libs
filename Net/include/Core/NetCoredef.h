@@ -163,6 +163,4 @@ private:
     std::mutex _deletionMutex;
 };
 
-bool IsHeartBeat(const Buffer &buf);
-
 #define NetCore NetCoreProcess::Instance()

@@ -1,7 +1,10 @@
 #include "Session/CustomTcpSession.h"
+#include "Helper/C2C32Helper.h"
 
 const char CustomProtocolTryToken[] = "alskdjfhg";      // 客户端发起连接发送的请求Token
 const char CustomProtocolConfirmToken[] = "qpwoeiruty"; // 服务端接收到请求后返回的确认Token
+
+const uint32_t CustomProtocolMagic = 0x1A2B3C4D; // 魔数，用以包校验
 
 const char HeartBuffer[] = "23388990";
 bool IsHeartBeat(const Buffer &Buffer)
@@ -12,42 +15,71 @@ bool IsHeartBeat(const Buffer &Buffer)
 
 struct CustomTcpMsgHeader
 {
+    uint32_t magic = CustomProtocolMagic;
     int seq = 0;
     int ack = -1;
     int length = 0;
+    uint32_t checksum = 0xFFFFFFFF;
+
+    CustomTcpMsgHeader() {}
+    CustomTcpMsgHeader(int seq, int ack, int length)
+        : seq(seq), ack(ack), length(length)
+    {
+    }
 };
 
 using Base = BaseNetWorkSession;
 
-// 处理包内容，从包的Buffer中取出seq、ack，使用者获取的Buffer中不应包含相应字段
-void ShiftPakHeader(CustomPackage *pak)
+// 校验包
+bool CheckPakHeader(CustomTcpMsgHeader header, const uint8_t *data, size_t len)
 {
-    if (!pak || pak->buffer.Length() < 8)
-        return;
-    pak->buffer.Read(&(pak->seq), 4);
-    pak->buffer.Read(&(pak->ack), 4);
-    pak->buffer.Shift(12);
+    uint32_t save = header.checksum;
+
+    header.checksum = 0; // 置零
+
+    uint32_t crc = CRC32Helper::calculate((uint8_t *)(&header), sizeof(CustomTcpMsgHeader)); // 计算Header的CRC
+    if (data)
+        crc = CRC32Helper::update(crc, data, len); // 增量计算PayLoad的CRC
+
+    return crc == save;
 }
+
 // 处理流内容，在流的头部添加seq和ack字段
 void AddPakHeader(Buffer *buf, CustomTcpMsgHeader header)
 {
-    if (!buf)
+    if (!buf && header.length > 0)
         return;
-    buf->Unshift(&header, 12);
-    buf->Seek(buf->Postion() + 12);
+
+    header.checksum = 0; // 置零
+
+    uint32_t crc = CRC32Helper::calculate((uint8_t *)(&header), sizeof(CustomTcpMsgHeader)); // 计算Header的CRC
+    if (buf)
+        crc = CRC32Helper::update(crc, (uint8_t *)(buf->Data()), buf->Length()); // 增量计算PayLoad的CRC
+
+    header.checksum = crc;
+
+    buf->Unshift(&header, sizeof(CustomTcpMsgHeader));
 }
 
-bool AnalysisDataPackage(Buffer *buf, CustomPackage *outPak)
+enum class AnalysisResult
+{
+    InputError = -3,    // 输入错误
+    MagicError = -2,    // 魔数错误
+    ChecksumError = -1, // 数据包校验和错误
+    BufferAGAIN = 0,    // Buffer未取到足够长度
+    Success = 1,
+};
+AnalysisResult AnalysisDataPackage(Buffer *buf, CustomPackage *outPak)
 {
     if (!buf || !outPak)
     {
         std::cout << "CustomTcpSession::AnalysisDataPackage null buf or null outPak!\n";
-        return false;
+        return AnalysisResult::InputError;
     }
 
     if (buf->Remaind() < sizeof(CustomTcpMsgHeader))
     {
-        return false;
+        return AnalysisResult::BufferAGAIN;
     }
 
     int oriPos = buf->Postion();
@@ -55,17 +87,26 @@ bool AnalysisDataPackage(Buffer *buf, CustomPackage *outPak)
     CustomTcpMsgHeader header;
     buf->Read(&header, sizeof(CustomTcpMsgHeader));
 
+    if (header.magic != CustomProtocolMagic)
+        return AnalysisResult::MagicError;
+
     if (buf->Remaind() < header.length)
     {
         buf->Seek(oriPos);
-        return false;
+        return AnalysisResult::BufferAGAIN;
+    }
+
+    if (!CheckPakHeader(header, (uint8_t *)(buf->Byte() + buf->Postion()), header.length))
+    {
+        buf->Shift(buf->Postion() + header.length);
+        return AnalysisResult::ChecksumError;
     }
 
     outPak->seq = header.seq;
     outPak->ack = header.ack;
     outPak->buffer.Append(*buf, header.length);
 
-    return true;
+    return AnalysisResult::Success;
 }
 
 CustomTcpSession::CustomTcpSession(PureTCPClient *client)
@@ -145,7 +186,7 @@ bool CustomTcpSession::AwaitSend(const Buffer &buffer, Buffer &response)
             return false;
 
         Buffer buf(buffer);
-        AddPakHeader(&buf, {seq, -1, buffer.Length()});
+        AddPakHeader(&buf, CustomTcpMsgHeader(seq, -1, buffer.Length()));
         if (BaseClient->Send(buf)) // 发送
         {
             std::unique_lock<std::mutex> awaitlck(task->_mtx);
@@ -195,8 +236,8 @@ bool CustomTcpSession::OnRecvData(Buffer *buffer)
     while (cacheBuffer.Remaind() > 0)
     {
         // 解析数据包
-        int result = AnalysisDataPackage(&cacheBuffer, cachePak);
-        if (result)
+        AnalysisResult result = AnalysisDataPackage(&cacheBuffer, cachePak);
+        if (result == AnalysisResult::Success)
         {
             // 数据包解析成功，获得完整Package
             cacheBuffer.Shift(cacheBuffer.Postion());
@@ -208,15 +249,17 @@ bool CustomTcpSession::OnRecvData(Buffer *buffer)
             std::lock_guard<SpinLock> lock(_ProcessLock);
             ProcessPakage(newPak);
         }
-        else
+        else if (result == AnalysisResult::BufferAGAIN)
         {
             break;
         }
-        // else
-        // {
-        //     std::cout << "AnalysisDataPackage Error!\n";
-        //     Release();
-        // }
+        else if (result == AnalysisResult::MagicError)
+        {
+            cacheBuffer.Shift(sizeof(CustomProtocolMagic));
+        }
+        else if (result == AnalysisResult::ChecksumError)
+        {
+        }
     }
     return true;
 }
@@ -230,7 +273,7 @@ bool CustomTcpSession::Send(const Buffer &buffer, int ack)
 
         int seq = this->seq++;
         Buffer buf(buffer);
-        AddPakHeader(&buf, {seq, ack, buffer.Length()});
+        AddPakHeader(&buf, CustomTcpMsgHeader(seq, ack, buffer.Length()));
         return BaseClient->Send(buf);
     }
     catch (const std::exception &e)
