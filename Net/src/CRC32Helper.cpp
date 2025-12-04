@@ -1,4 +1,4 @@
-#include "Helper/C2C32Helper.h"
+#include "Helper/CRC32Helper.h"
 
 uint32_t CRC32Helper::crc_table[256];
 bool CRC32Helper::table_initialized = false;

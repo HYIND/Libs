@@ -1,5 +1,5 @@
 #include "Session/CustomTcpSession.h"
-#include "Helper/C2C32Helper.h"
+#include "Helper/CRC32Helper.h"
 
 const char CustomProtocolTryToken[] = "alskdjfhg";      // 客户端发起连接发送的请求Token
 const char CustomProtocolConfirmToken[] = "qpwoeiruty"; // 服务端接收到请求后返回的确认Token
