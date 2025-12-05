@@ -190,7 +190,16 @@ void TCPTransportListener::BindAcceptCallBack(function<void(TCPTransportConnecti
 }
 
 #ifdef __linux__
-void TCPTransportListener::OnEPOLLIN(int fd)
+void TCPTransportListener::OnREAD(int fd)
+{
+	OnACCEPT(fd);
+}
+void TCPTransportListener::OnREAD(int fd, Buffer &Buffer)
+{
+	OnACCEPT(fd);
+}
+
+void TCPTransportListener::OnACCEPT(int fd)
 {
 	if (fd == this->_fd)
 	{
@@ -214,6 +223,22 @@ void TCPTransportListener::OnEPOLLIN(int fd)
 				break;
 			}
 		}
+	}
+}
+void TCPTransportListener::OnACCEPT(int fd, int newclient, sockaddr_in addr)
+{
+	if (fd == this->_fd)
+	{
+		if (newclient < 0)
+			return;
+
+		int clientFd = newclient;
+		TCPTransportConnection *client = new TCPTransportConnection();
+		client->Apply(clientFd, addr, this->_type);
+		this->clients.insert(pair<int, TCPTransportConnection *>(clientFd, client));
+		cout << "tcpclient connect ,address: " << inet_ntoa(addr.sin_addr) << ":" << ntohs(addr.sin_port) << endl;
+		if (_callbackAccept)
+			_callbackAccept(client);
 	}
 }
 #elif _WIN32
@@ -393,7 +418,7 @@ SafeQueue<Buffer *> &TCPTransportConnection::GetSendData() { return _SendDatas; 
 std::mutex &TCPTransportConnection::GetSendMtx() { return _SendResMtx; }
 
 #ifdef __linux__
-void TCPTransportConnection::OnEPOLLIN(int fd)
+void TCPTransportConnection::OnREAD(int fd)
 {
 	auto read = [&](Buffer &buf, int length) -> bool
 	{
@@ -462,7 +487,22 @@ void TCPTransportConnection::OnEPOLLIN(int fd)
 		}
 		recvcount--;
 	}
+	ProcessRecvQueue();
+}
+void TCPTransportConnection::OnREAD(int fd, Buffer &buf)
+{
+	Buffer *copybuf = new Buffer();
+	copybuf->CopyFromBuf(buf);
 
+	_RecvDatas.enqueue(copybuf);
+	ProcessRecvQueue();
+}
+
+void TCPTransportConnection::OnACCEPT(int fd) {}
+void TCPTransportConnection::OnACCEPT(int fd, int newclient, sockaddr_in addr) {}
+
+void TCPTransportConnection::ProcessRecvQueue()
+{
 	while (!_RecvDatas.empty())
 	{
 		Buffer *buf = nullptr;
@@ -488,6 +528,7 @@ void TCPTransportConnection::OnEPOLLIN(int fd)
 			break;
 	}
 }
+
 #elif _WIN32
 void TCPTransportConnection::OnREAD(SOCKET socket, Buffer &buffer)
 {

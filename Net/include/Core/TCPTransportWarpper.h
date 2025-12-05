@@ -87,12 +87,16 @@ public:
 
 public:
 #ifdef __linux__
-	EXPORT_FUNC virtual void OnRDHUP() = 0;			// 对端关闭事件，即断开连接
-	EXPORT_FUNC virtual void OnEPOLLIN(int fd) = 0; // 可读事件
+	EXPORT_FUNC virtual void OnRDHUP() = 0;											// 对端关闭事件，即断开连接
+	EXPORT_FUNC virtual void OnREAD(int fd) = 0;									// 可读事件
+	EXPORT_FUNC virtual void OnREAD(int fd, Buffer &buf) = 0;						// 可读事件
+	EXPORT_FUNC virtual void OnACCEPT(int fd) = 0;									// 接受新连接事件
+	EXPORT_FUNC virtual void OnACCEPT(int fd, int newclient, sockaddr_in addr) = 0; // 接受新连接事件
+
 #elif _WIN32
-	EXPORT_FUNC virtual void OnRDHUP(){};								   // 对端关闭事件，即断开连接
-	EXPORT_FUNC virtual void OnREAD(SOCKET socket, Buffer &buffer){};	   // 可读事件
-	EXPORT_FUNC virtual void OnACCEPT(SOCKET socket, sockaddr_in *addr){}; // 可读事件
+	EXPORT_FUNC virtual void OnRDHUP() {};									// 对端关闭事件，即断开连接
+	EXPORT_FUNC virtual void OnREAD(SOCKET socket, Buffer &buffer) {};		// 可读事件
+	EXPORT_FUNC virtual void OnACCEPT(SOCKET socket, sockaddr_in *addr) {}; // 可读事件
 #endif
 
 protected:
@@ -133,11 +137,18 @@ public:
 public:
 #ifdef __linux__
 	EXPORT_FUNC virtual void OnRDHUP();
-	EXPORT_FUNC virtual void OnEPOLLIN(int fd);
+	EXPORT_FUNC virtual void OnREAD(int fd);									 // 可读事件
+	EXPORT_FUNC virtual void OnREAD(int fd, Buffer &buf);						 // 可读事件
+	EXPORT_FUNC virtual void OnACCEPT(int fd);									 // 接受新连接事件
+	EXPORT_FUNC virtual void OnACCEPT(int fd, int newclient, sockaddr_in addr); // 接受新连接事件
+
 #elif _WIN32
 	EXPORT_FUNC virtual void OnRDHUP();
 	EXPORT_FUNC virtual void OnREAD(SOCKET socket, Buffer &buffer);
 #endif
+
+private:
+	void ProcessRecvQueue();
 
 private:
 	SafeQueue<Buffer *> _RecvDatas;
@@ -163,8 +174,12 @@ public:
 
 public:
 #ifdef __linux__
-	virtual void OnRDHUP();
-	virtual void OnEPOLLIN(int fd);
+	EXPORT_FUNC virtual void OnRDHUP();
+	EXPORT_FUNC virtual void OnREAD(int fd);									// 可读事件
+	EXPORT_FUNC virtual void OnREAD(int fd, Buffer &buf);						// 可读事件
+	EXPORT_FUNC virtual void OnACCEPT(int fd);									// 接受新连接事件
+	EXPORT_FUNC virtual void OnACCEPT(int fd, int newclient, sockaddr_in addr); // 接受新连接事件
+
 #elif _WIN32
 	virtual void OnRDHUP();
 	virtual void OnACCEPT(SOCKET socket, sockaddr_in *addr);

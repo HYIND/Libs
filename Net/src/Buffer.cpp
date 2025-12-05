@@ -79,6 +79,8 @@ void Buffer::CopyFromBuf(const char *buf, int length)
 {
     SAFE_DELETE_ARRAY(_buf);
 
+    length = std::max(0, length);
+
     _buf = new char[length];
     memcpy(_buf, buf, length);
     _length = length;

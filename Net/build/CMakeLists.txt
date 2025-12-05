@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.16)
+cmake_minimum_required(VERSION 3.16)
 
 project(net C CXX)
 
@@ -7,6 +7,18 @@ include_directories(../../publicShare/include)
 include_directories(../../Log/include)
 
 aux_source_directory(../src DIR_SRC)
+
+option(USE_IO_URING "Use io_uring instead of epoll" OFF)
+
+if(USE_IO_URING)
+    message(STATUS "Building with io_uring support")
+    add_definitions(-DIO_URING_ON=1)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -luring")
+    list(FILTER DIR_SRC EXCLUDE REGEX ".*EpollCore\\.cpp$")
+else()
+    message(STATUS "Building without io_uring (using epoll)")
+    list(FILTER DIR_SRC EXCLUDE REGEX ".*IOuringCore\\.cpp$")
+endif()
 
 ADD_LIBRARY(net SHARED ${DIR_SRC})
 
