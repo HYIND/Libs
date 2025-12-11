@@ -53,3 +53,12 @@ void CriticalSectionLock::Leave() {
 
 #endif
 
+void CriticalSectionLock::lock()
+{
+    Enter();
+}
+
+void CriticalSectionLock::unlock()
+{
+    Leave();
+}

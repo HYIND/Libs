@@ -12,7 +12,8 @@ public:
 	struct NetCore_EpollData
 	{
 		int fd;
-		BaseTransportConnection *Con;
+		std::weak_ptr<BaseTransportConnection> Con;
+		BaseTransportConnection *raw_ptr;
 	};
 
 	// weak包装，防止epoll处理期间EpollData过期
@@ -29,12 +30,13 @@ public:
 public:
 	static EpollCoreProcess *Instance();
 	int Run();
+	void Stop();
 	bool Running();
 
 public:
-	bool AddNetFd(BaseTransportConnection *Con);
+	bool AddNetFd(std::shared_ptr<BaseTransportConnection> Con);
 	bool DelNetFd(BaseTransportConnection *Con);
-	bool SendRes(TCPTransportConnection *Con);
+	bool SendRes(std::shared_ptr<BaseTransportConnection> BaseCon);
 	void AddPendingDeletion(DeleteLaterImpl *ptr);
 
 private:

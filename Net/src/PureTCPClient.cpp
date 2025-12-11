@@ -13,15 +13,20 @@ PureTCPClient::PureTCPClient(TCPTransportConnection *con)
 {
     Protocol = TCPNetProtocol::PureTCP;
     if (con)
-        BaseCon = con;
+        BaseCon = std::shared_ptr<TCPTransportConnection>(con);
     else
-        BaseCon = new TCPTransportConnection();
+        BaseCon = std::make_shared<TCPTransportConnection>();
+}
+
+PureTCPClient::PureTCPClient(std::shared_ptr<TCPTransportConnection> con)
+{
+    Protocol = TCPNetProtocol::PureTCP;
+    BaseCon = con;
 }
 
 PureTCPClient::~PureTCPClient()
 {
     Release();
-    SAFE_DELETE(BaseCon);
 }
 
 bool PureTCPClient::Connect(const std::string &IP, uint16_t Port)

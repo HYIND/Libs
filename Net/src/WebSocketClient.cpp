@@ -10,15 +10,20 @@ WebSocketClient::WebSocketClient(TCPTransportConnection *con)
     Protocol = TCPNetProtocol::WebSocket;
     cachePak = new WebSocketPackage();
     if (con)
-        BaseCon = con;
+        BaseCon = std::shared_ptr<TCPTransportConnection>(con);
     else
-        BaseCon = new TCPTransportConnection();
+        BaseCon = std::make_shared<TCPTransportConnection>();
+}
+
+WebSocketClient::WebSocketClient(std::shared_ptr<TCPTransportConnection> con)
+{
+    Protocol = TCPNetProtocol::PureTCP;
+    BaseCon = con;
 }
 
 WebSocketClient::~WebSocketClient()
 {
     Release();
-    SAFE_DELETE(BaseCon);
     SAFE_DELETE(cachePak);
 }
 
@@ -30,7 +35,7 @@ bool WebSocketClient::Connect(const std::string &IP, uint16_t Port)
     // 尝试握手，超时时间10秒
     if (!TryHandshake(10 * 1000))
     {
-        std::cout << "WebSocketClient::TryHandshake Connect Fail! CloseConnection\n";
+        std::cout << "WebSocketClient::Connect TryHandshake Connect Fail! CloseConnection\n";
         Release();
         return false;
     }
@@ -202,7 +207,6 @@ CheckHandshakeStatus WebSocketClient::CheckHandshakeTryMsg(Buffer &buffer)
 
     cacheBuffer.WriteFromOtherBufferPos(buffer);
 
-    std::cout << "Recv HandShakeRequest:" << (char *)buffer.Data() << std::endl;
     std::map<std::string, std::string> params;
     int HsBufferLength = 0;
     int result = WebSocketAnalysisHelp::AnalysisHandshakeRequest(cacheBuffer, _SecWsKey, params, HsBufferLength);

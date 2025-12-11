@@ -1,12 +1,23 @@
 #include "Core/IOuringCore.h"
 #include "Core/NetCoredef.h"
 #include "ResourcePool.h"
+#include "ThreadPool.h"
 
-#define ENTRIES 500
+#define ENTRIES 30000
 
 #define RECVBUFFERMINLEN 1024
 #define RECVBUFFERDEFLEN 1024 * 5
 #define RECVBUFFERMAXLEN 1024 * 1024
+
+#define SENDBUFFERCONCATMAXLEN 1024 * 1024
+#define RECVBUFFERCONCATMAXLEN 1024 * 1024
+
+int64_t GetTimestampMilliseconds()
+{
+    auto now = std::chrono::system_clock::now();
+    auto duration = now.time_since_epoch();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+}
 
 static void setnonblocking(int fd)
 {
@@ -24,12 +35,15 @@ struct IOuringOPData
 {
     IOUring_OPType OP_Type;
     int fd;
-    BaseTransportConnection *Con;
+    std::weak_ptr<BaseTransportConnection> weakCon;
+    BaseTransportConnection *raw_ptr;
 
     Buffer buffer;
 
     socklen_t addr_len;
     sockaddr_in client_addr; // 客户端地址
+
+    int res; // IO操作完成后，通知前写入结果
 
     IOuringOPData() : IOuringOPData(IOUring_OPType::OP_READ)
     {
@@ -38,9 +52,10 @@ struct IOuringOPData
         : OP_Type(OP_Type)
     {
         fd = 0;
-        Con = nullptr;
+        raw_ptr = nullptr;
         addr_len = 0;
-        memset(&client_addr, 0, sizeof(client_addr));
+        memset(&client_addr, '\0', sizeof(sockaddr_in));
+        res = 0;
     }
     ~IOuringOPData()
     {
@@ -48,11 +63,55 @@ struct IOuringOPData
     }
     void Reset()
     {
-        Con = nullptr;
+        OP_Type = IOUring_OPType::OP_READ;
+        fd = 0;
+        weakCon.reset();
+        raw_ptr = nullptr;
         buffer.Release();
         addr_len = 0;
-        memset(&client_addr, 0, sizeof(client_addr));
+        memset(&client_addr, '\0', sizeof(sockaddr_in));
+        res = 0;
     }
+
+    static IOuringOPData *CreateWriteOP(std::shared_ptr<BaseTransportConnection> Con, Buffer &buf);
+    static IOuringOPData *CreateReadOP(std::shared_ptr<BaseTransportConnection> Con, uint32_t size);
+    static IOuringOPData *CreateAcceptOP(std::shared_ptr<BaseTransportConnection> Con);
+    static IOuringOPData *CreateWillWriteOP(std::shared_ptr<BaseTransportConnection> Con);
+};
+
+enum class IOuringCoreProcess::SequentialEventExecutor::excutestate
+{
+    none = -1,
+    idle = 0,
+    doing = 1
+};
+struct IOuringCoreProcess::SequentialEventExecutor::ExcuteEvent
+{
+    enum class EventType
+    {
+        READ_DATA,
+        ACCEPT_CONNECTION,
+        READ_HUP
+    };
+    EventType type;
+    std::weak_ptr<NetCore_IOuringData> weakdata;
+    std::shared_ptr<Buffer> data;
+    struct
+    {
+        int client_fd;
+        sockaddr_in client_addr;
+    } accept_info;
+
+    ExcuteEvent(EventType type, std::shared_ptr<NetCore_IOuringData> iodata) : type(type), weakdata(iodata) {}
+    ~ExcuteEvent()
+    {
+        if (data)
+            data->Release();
+    }
+
+    static std::shared_ptr<ExcuteEvent> CreateReadEvent(std::shared_ptr<NetCore_IOuringData> iodata, Buffer &buf);
+    static std::shared_ptr<ExcuteEvent> CreateAcceptEvent(std::shared_ptr<NetCore_IOuringData> iodata, int client_fd, sockaddr_in client_addr);
+    static std::shared_ptr<ExcuteEvent> CreateRDHUP(std::shared_ptr<NetCore_IOuringData> iodata);
 };
 
 class IODataManager : public ResPool<IOuringOPData>
@@ -63,129 +122,404 @@ public:
         static IODataManager *Instance = new IODataManager();
         return Instance;
     }
+    IODataManager::IODataManager() : ResPool(200, 1000)
+    {
+    }
     void ResetData(IOuringOPData *data)
     {
         data->Reset();
     }
-    IOuringOPData *AllocateData(IOUring_OPType OP_Type, int fd, BaseTransportConnection *Con, uint32_t buffersize = RECVBUFFERDEFLEN)
+    IOuringOPData *AllocateData(IOUring_OPType OP_Type, int fd, std::shared_ptr<BaseTransportConnection> Con, uint32_t buffersize = RECVBUFFERDEFLEN)
     {
         IOuringOPData *data = ResPool<IOuringOPData>::AllocateData();
         data->OP_Type = OP_Type;
         data->fd = fd;
-        data->Con = Con;
+        data->weakCon = Con;
+        data->raw_ptr = Con.get();
         if (OP_Type == IOUring_OPType::OP_READ || OP_Type == IOUring_OPType::OP_WRITE)
             data->buffer.ReSize(buffersize);
         else if (OP_Type == IOUring_OPType::OP_ACCEPT)
         {
             data->addr_len = 0;
-            memset(&data->client_addr, 0, sizeof(data->client_addr));
+            memset(&data->client_addr, 0, sizeof(sockaddr_in));
         }
         return data;
     }
 };
 #define IODATAMANAGER IODataManager::Instance()
 
-IOuringCoreProcess::SequentialSender::SequentialSender()
+IOuringOPData *IOuringOPData::CreateWriteOP(std::shared_ptr<BaseTransportConnection> Con, Buffer &buf)
 {
-    _state = sendstate::idle;
+    IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_WRITE, Con->GetFd(), Con, 0);
+    int oripos = buf.Postion();
+    data->buffer.QuoteFromBuf(buf);
+    data->buffer.Seek(oripos);
+    return data;
+}
+IOuringOPData *IOuringOPData::CreateReadOP(std::shared_ptr<BaseTransportConnection> Con, uint32_t size)
+{
+    IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_READ, Con->GetFd(), Con, size);
+    return data;
 }
 
-IOuringCoreProcess::SequentialSender::~SequentialSender()
+IOuringOPData *IOuringOPData::CreateAcceptOP(std::shared_ptr<BaseTransportConnection> Con)
+{
+    IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_ACCEPT, Con->GetFd(), Con, 0);
+    data->addr_len = sizeof(sockaddr_in);
+    return data;
+}
+IOuringOPData *IOuringOPData::CreateWillWriteOP(std::shared_ptr<BaseTransportConnection> Con)
+{
+    IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_WILLWRITE, Con->GetFd(), Con, 0);
+    return data;
+}
+
+bool IOuringCoreProcess::NetCore_IOuringData::SubmitIOEvent(IOuringOPData *opdata)
+{
+    if (!opdata)
+        return false;
+    for (auto sender : senders)
+    {
+        if (sender->GetSubmitType() == opdata->OP_Type)
+        {
+            sender->SubmitOPdata(opdata);
+            return true;
+        }
+    }
+    return false;
+}
+
+void IOuringCoreProcess::NetCore_IOuringData::GetPostIOEvent(std::vector<IOuringOPData *> &out)
+{
+    for (auto sender : senders)
+    {
+        if (sender)
+            sender->GetPostIOEvent(out);
+    }
+}
+
+void IOuringCoreProcess::NetCore_IOuringData::NotifyIOEventDone(IOuringOPData *opdata)
+{
+    for (auto &sender : senders)
+    {
+        if (sender->GetSubmitType() == opdata->OP_Type)
+        {
+            sender->NotifyDone(opdata);
+            return;
+        }
+    }
+}
+void IOuringCoreProcess::NetCore_IOuringData::NotifyIOEventRetry(IOuringOPData *opdata)
+{
+    for (auto &sender : senders)
+    {
+        if (sender->GetSubmitType() == opdata->OP_Type)
+        {
+            sender->NotifyRetry(opdata);
+            return;
+        }
+    }
+}
+
+IOuringCoreProcess::SequentialIOSubmitter::SequentialIOSubmitter(
+    IOuringCoreProcess *core,
+    std::shared_ptr<NetCore_IOuringData> &data,
+    IOUring_OPType type)
+    : _core(core), _weakdata(data), _type(type), _state(submitstate::idle)
+{
+}
+
+IOuringCoreProcess::SequentialIOSubmitter::~SequentialIOSubmitter()
 {
     Release();
 }
 
-void IOuringCoreProcess::SequentialSender::Release()
+void IOuringCoreProcess::SequentialIOSubmitter::Release()
 {
-    _lock.Enter();
+    _state = submitstate::none;
 
-    _state = sendstate::none;
-
+    std::lock_guard<CriticalSectionLock> lock(_lock);
     while (!_queue.empty())
     {
-        Buffer *buf = nullptr;
-        _queue.dequeue(buf);
-        SAFE_DELETE(buf);
+        IOuringOPData *opdata = nullptr;
+        if (_queue.dequeue_front(opdata) && opdata)
+            IODATAMANAGER->ReleaseData(opdata);
     }
-
-    _lock.Leave();
 }
 
-void IOuringCoreProcess::SequentialSender::Send(Buffer &buf, BaseTransportConnection *Con, int fd)
+void IOuringCoreProcess::SequentialIOSubmitter::SubmitOPdata(IOuringOPData *opdata)
 {
-    if (_state == sendstate::none)
+    if (!_core)
         return;
 
-    if (fd != Con->GetFd())
+    if (!opdata || opdata->OP_Type != _type)
         return;
 
-    Buffer *temp = new Buffer();
-    temp->QuoteFromBuf(buf);
-
-    _queue.enqueue(temp);
-    if (!_lock.TryEnter())
+    if (_state == submitstate::none)
         return;
 
-    ProcessQueue(Con);
+    std::lock_guard<CriticalSectionLock> lock(_lock);
+    if (_state == submitstate::none || !_weakdata.lock())
+        return;
 
-    _lock.Leave();
+    _queue.enqueue_back(opdata);
+
+    if (_state == submitstate::idle)
+    {
+        _core->_IOEventCV.notify_one();
+    }
 }
 
-void IOuringCoreProcess::SequentialSender::Update(BaseTransportConnection *Con, uint32_t sendsize, Buffer &buf)
+void IOuringCoreProcess::SequentialIOSubmitter::NotifyDone(IOuringOPData *opdata)
 {
-    if (_state == sendstate::none)
+    if (_state == submitstate::none)
         return;
 
-    if (!_lock.TryEnter())
+    if (opdata->OP_Type != _type)
         return;
 
-    buf.Seek(buf.Postion() + sendsize);
-    if (buf.Remaind())
-    {
-        IOuringCoreProcess::Instance()->postSendReq(Con, buf);
-        _state = sendstate::sending;
-    }
-    else
-    {
-        _state = sendstate::idle;
-        ProcessQueue(Con);
-    }
-    _lock.Leave();
-}
-
-void IOuringCoreProcess::SequentialSender::Retry(BaseTransportConnection *Con, Buffer &buf)
-{
-    if (_state == sendstate::none)
+    std::lock_guard<CriticalSectionLock> lock(_lock);
+    if (_state == submitstate::none)
         return;
 
-    if (!_lock.TryEnter())
-        return;
-
-    if (buf.Remaind())
+    if (_type == IOUring_OPType::OP_WRITE)
     {
-        IOuringCoreProcess::Instance()->postSendReq(Con, buf);
-        _state = sendstate::sending;
-    }
-    else
-    {
-        _state = sendstate::idle;
-        ProcessQueue(Con);
-    }
-    _lock.Leave();
-}
-
-void IOuringCoreProcess::SequentialSender::ProcessQueue(BaseTransportConnection *Con)
-{
-    Buffer *sendbuf = nullptr;
-    while (_queue.front(sendbuf) && _state == sendstate::idle)
-    {
-        if (_queue.dequeue(sendbuf))
+        if (opdata->buffer.Remaind())
         {
-            if (!sendbuf)
-                continue;
-            IOuringCoreProcess::Instance()->postSendReq(Con, *sendbuf);
-            _state = sendstate::sending;
+            // 上次传输未完全完成，创建新的IOuringOPData任务，然后放到队首，继续传输
+            if (auto iodata = _weakdata.lock())
+            {
+                if (auto Con = iodata->weakCon.lock())
+                {
+                    auto submitopdata = IOuringOPData::CreateWriteOP(Con, opdata->buffer);
+                    _queue.enqueue_front(submitopdata);
+                }
+            }
         }
+    }
+    _state = submitstate::idle;
+    if (!_queue.empty())
+        _core->_IOEventCV.notify_one();
+}
+
+void IOuringCoreProcess::SequentialIOSubmitter::NotifyRetry(IOuringOPData *opdata)
+{
+    std::lock_guard<CriticalSectionLock> lock(_lock);
+
+    if (auto iodata = _weakdata.lock())
+    {
+        if (auto Con = iodata->weakCon.lock())
+        {
+            switch (opdata->OP_Type)
+            {
+            case IOUring_OPType::OP_WRITE:
+            {
+                auto submitopdata = IOuringOPData::CreateWriteOP(Con, opdata->buffer);
+                _queue.enqueue_front(submitopdata);
+            }
+            break;
+            case IOUring_OPType::OP_READ:
+            {
+                auto submitopdata = IOuringOPData::CreateReadOP(Con, opdata->buffer.Length());
+                _queue.enqueue_front(submitopdata);
+            }
+            break;
+            case IOUring_OPType::OP_ACCEPT:
+            {
+                auto submitopdata = IOuringOPData::CreateAcceptOP(Con);
+                _queue.enqueue_front(submitopdata);
+            }
+            break;
+            case IOUring_OPType::OP_WILLWRITE:
+            {
+                auto submitopdata = IOuringOPData::CreateWillWriteOP(Con);
+                _queue.enqueue_front(submitopdata);
+            }
+            default:
+                break;
+            }
+        }
+    }
+
+    _state = submitstate::idle;
+    if (!_queue.empty())
+        _core->_IOEventCV.notify_one();
+}
+
+IOUring_OPType IOuringCoreProcess::SequentialIOSubmitter::GetSubmitType()
+{
+    return _type;
+}
+
+void IOuringCoreProcess::SequentialIOSubmitter::GetPostIOEvent(std::vector<IOuringOPData *> &out)
+{
+    if (_state != submitstate::idle)
+        return;
+
+    std::lock_guard<CriticalSectionLock> lock(_lock);
+    if (_state != submitstate::idle)
+        return;
+
+    if (!_queue.empty())
+    {
+        if (_type != IOUring_OPType::OP_WRITE)
+        {
+            IOuringOPData *opdata;
+            if (_queue.dequeue_front(opdata) && opdata)
+            {
+                out.emplace_back(opdata);
+                _state = submitstate::doing;
+            }
+        }
+        else // 尝试合并写事件
+        {
+            IOuringOPData *fistdata;
+            if (_queue.dequeue_front(fistdata) && fistdata)
+            {
+                // 最多合并9个
+                int count = 9;
+                while (!_queue.empty() && count > 0)
+                {
+                    IOuringOPData *opdata = nullptr;
+                    if (_queue.front(opdata) &&
+                        opdata &&
+                        fistdata->buffer.Length() + opdata->buffer.Length() < SENDBUFFERCONCATMAXLEN)
+                    {
+                        fistdata->buffer.Append(opdata->buffer);
+                        _queue.dequeue_front(opdata);
+                        IODATAMANAGER->ReleaseData(opdata);
+                        count--;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+            }
+
+            out.emplace_back(fistdata);
+            _state = submitstate::doing;
+        }
+    }
+}
+
+std::shared_ptr<IOuringCoreProcess::SequentialEventExecutor::ExcuteEvent>
+IOuringCoreProcess::SequentialEventExecutor::ExcuteEvent::CreateReadEvent(std::shared_ptr<NetCore_IOuringData> iodata, Buffer &buf)
+{
+    std::shared_ptr<ExcuteEvent> event = std::make_shared<ExcuteEvent>(EventType::READ_DATA, iodata);
+    event->data = std::make_shared<Buffer>();
+    event->data->QuoteFromBuf(buf);
+    return event;
+}
+
+std::shared_ptr<IOuringCoreProcess::SequentialEventExecutor::ExcuteEvent>
+IOuringCoreProcess::SequentialEventExecutor::ExcuteEvent::CreateAcceptEvent(std::shared_ptr<NetCore_IOuringData> iodata, int client_fd, sockaddr_in client_addr)
+{
+    std::shared_ptr<ExcuteEvent> event = std::make_shared<ExcuteEvent>(EventType::ACCEPT_CONNECTION, iodata);
+    event->accept_info.client_fd = client_fd;
+    event->accept_info.client_addr = client_addr;
+    return event;
+}
+
+std::shared_ptr<IOuringCoreProcess::SequentialEventExecutor::ExcuteEvent>
+IOuringCoreProcess::SequentialEventExecutor::ExcuteEvent::CreateRDHUP(std::shared_ptr<NetCore_IOuringData> iodata)
+{
+    std::shared_ptr<ExcuteEvent> event = std::make_shared<ExcuteEvent>(EventType::READ_HUP, iodata);
+    return event;
+}
+
+IOuringCoreProcess::SequentialEventExecutor::SequentialEventExecutor(
+    IOuringCoreProcess *core,
+    std::shared_ptr<NetCore_IOuringData> &data)
+    : _core(core), _weakdata(data), _state(excutestate::idle)
+{
+}
+
+IOuringCoreProcess::SequentialEventExecutor::~SequentialEventExecutor()
+{
+    Release();
+}
+
+void IOuringCoreProcess::SequentialEventExecutor::Release()
+{
+    _state = excutestate::none;
+    std::lock_guard<CriticalSectionLock> lock(_lock);
+    _queue.clear();
+}
+
+void IOuringCoreProcess::SequentialEventExecutor::SubmitExcuteEvent(std::shared_ptr<ExcuteEvent> event)
+{
+    if (!_core)
+        return;
+    if (_state == excutestate::none)
+        return;
+
+    std::lock_guard<CriticalSectionLock> lock(_lock);
+    if (_state == excutestate::none || !_weakdata.lock())
+        return;
+
+    _queue.enqueue(event);
+
+    if (_state == excutestate::idle)
+    {
+        _core->_ExcuteCV.notify_one();
+    }
+}
+
+void IOuringCoreProcess::SequentialEventExecutor::NotifyDone()
+{
+    if (_state == excutestate::none)
+        return;
+
+    std::lock_guard<CriticalSectionLock> lock(_lock);
+    if (_state == excutestate::none)
+        return;
+
+    _state = excutestate::idle;
+    if (!_queue.empty())
+        _core->_ExcuteCV.notify_one();
+}
+
+void IOuringCoreProcess::SequentialEventExecutor::GetPostExcuteEvent(std::vector<std::shared_ptr<ExcuteEvent>> &out)
+{
+    if (_state != excutestate::idle)
+        return;
+
+    std::lock_guard<CriticalSectionLock> lock(_lock);
+    if (_state != excutestate::idle)
+        return;
+
+    if (_queue.empty())
+        return;
+
+    std::shared_ptr<ExcuteEvent> firstevent;
+    if (_queue.dequeue(firstevent) && firstevent)
+    {
+        if (firstevent->type == ExcuteEvent::EventType::READ_DATA) // 尝试合并后续的读事件
+        {
+            int count = 9;
+            while (!_queue.empty() && count > 0)
+            {
+                std::shared_ptr<ExcuteEvent> event;
+                if (_queue.front(event) &&
+                    event &&
+                    event->type == firstevent->type &&
+                    event->data &&
+                    firstevent->data->Length() + event->data->Length() < RECVBUFFERCONCATMAXLEN)
+                {
+                    firstevent->data->Append(*(event->data));
+                    _queue.dequeue(event);
+                    count--;
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+
+        out.emplace_back(firstevent);
+        _state = excutestate::doing;
     }
 }
 
@@ -220,6 +554,7 @@ IOuringCoreProcess *IOuringCoreProcess::Instance()
 }
 
 IOuringCoreProcess::IOuringCoreProcess()
+    : _ExcuteEventProcessPool(4)
 {
     memset(&ring, 0, sizeof(ring));
     int ret = io_uring_queue_init(ENTRIES, &ring, 0);
@@ -227,6 +562,7 @@ IOuringCoreProcess::IOuringCoreProcess()
     {
         std::cout << "io_uring_queue_init fail!\n";
     }
+    _ExcuteEventProcessPool.start();
 }
 
 int IOuringCoreProcess::Run()
@@ -234,8 +570,12 @@ int IOuringCoreProcess::Run()
     try
     {
         _isrunning = true;
+        std::thread IOEventLoop(&IOuringCoreProcess::LoopSubmitIOEvent, this);
+        std::thread ExcuteEventLoop(&IOuringCoreProcess::LoopSubmitExcuteEvent, this);
         std::thread EventLoop(&IOuringCoreProcess::Loop, this);
         EventLoop.join();
+        IOEventLoop.join();
+        ExcuteEventLoop.join();
         _isrunning = false;
 
         // ThreadEnd();
@@ -253,98 +593,217 @@ bool IOuringCoreProcess::Running()
     return _isrunning;
 }
 
-bool IOuringCoreProcess::AddNetFd(BaseTransportConnection *Con)
+void IOuringCoreProcess::Stop()
+{
+    _isrunning = false;
+}
+
+bool IOuringCoreProcess::AddNetFd(std::shared_ptr<BaseTransportConnection> Con)
 {
     // cout << "AddNetFd fd :" << Con->GetFd() << endl;
-    if (Con->GetFd() <= 0)
-    {
+    if (!Con || Con->GetFd() <= 0)
         return false;
-    }
-    std::shared_ptr<NetCore_IOuringData> data = std::make_shared<NetCore_IOuringData>();
-    data->fd = Con->GetFd();
-    data->Con = Con;
-    data->sender = std::make_shared<SequentialSender>();
-    data->state = std::make_shared<DynamicBufferState>();
-    _IOUringData.Insert(Con, data);
+
+    std::shared_ptr<NetCore_IOuringData> iodata = std::make_shared<NetCore_IOuringData>();
+    std::weak_ptr<BaseTransportConnection> weak(Con);
+    iodata->fd = Con->GetFd();
+    iodata->weakCon = weak;
+    iodata->recver = std::make_shared<SequentialEventExecutor>(this, iodata);
+    iodata->state = std::make_shared<DynamicBufferState>();
 
     if (Con->GetNetType() == NetType::Client)
     {
-        setnonblocking(Con->GetFd());
-        if (!postRecvReq(Con))
-        {
-            DelNetFd(Con);
-            return false;
-        }
+        iodata->senders.emplace_back(std::make_shared<SequentialIOSubmitter>(this, iodata, IOUring_OPType::OP_WRITE));
+        iodata->senders.emplace_back(std::make_shared<SequentialIOSubmitter>(this, iodata, IOUring_OPType::OP_READ));
+        iodata->senders.emplace_back(std::make_shared<SequentialIOSubmitter>(this, iodata, IOUring_OPType::OP_WILLWRITE));
+        _IOUringData.Insert(Con.get(), iodata);
+
+        // setnonblocking(Con->GetFd());
+        IOuringOPData *opdata = IOuringOPData::CreateReadOP(Con, iodata->state->GetDynamicSize());
+        iodata->SubmitIOEvent(opdata);
     }
     if (Con->GetNetType() == NetType::Listener)
     {
-        if (!postAcceptReq(Con))
-        {
-            DelNetFd(Con);
-            return false;
-        }
+        iodata->senders.emplace_back(std::make_shared<SequentialIOSubmitter>(this, iodata, IOUring_OPType::OP_ACCEPT));
+        _IOUringData.Insert(Con.get(), iodata);
+
+        IOuringOPData *opdata = IOuringOPData::CreateAcceptOP(Con);
+        iodata->SubmitIOEvent(opdata);
     }
+
     return true;
 }
 
 bool IOuringCoreProcess::DelNetFd(BaseTransportConnection *Con)
 {
-    // IODATAMANAGER->CancelIOEvent(Con);
-
-    std::shared_ptr<NetCore_IOuringData> data;
-    if (_IOUringData.Find(Con, data))
-        _IOUringData.Erase(Con);
-
+    _IOUringData.Erase(Con);
     return true;
 }
 
-bool IOuringCoreProcess::SendRes(TCPTransportConnection *Con)
+bool IOuringCoreProcess::SendRes(std::shared_ptr<BaseTransportConnection> BaseCon)
 {
-    if (!Con->GetSendMtx().try_lock())
+    if (!BaseCon || !(BaseCon->GetNetType() == NetType::Client))
+        return false;
+
+    std::shared_ptr<TCPTransportConnection> Con = BaseCon->GetShared<TCPTransportConnection>();
+    if (!Con)
+        return false;
+
+    if (!Con->GetSendMtx().TryEnter())
         return true; // 写锁正在被其他线程占用
 
     int fd = Con->GetFd();
     SafeQueue<Buffer *> &SendDatas = Con->GetSendData();
 
     std::shared_ptr<NetCore_IOuringData> iodata;
-    if (!_IOUringData.Find(Con, iodata))
+    if (!_IOUringData.Find(Con.get(), iodata))
     {
         iodata = std::make_shared<NetCore_IOuringData>();
+        auto weak = std::weak_ptr<BaseTransportConnection>(BaseCon);
         iodata->fd = Con->GetFd();
-        iodata->Con = Con;
-        iodata->sender = std::make_shared<SequentialSender>();
+        iodata->weakCon = weak;
+        iodata->senders.emplace_back(std::make_shared<SequentialIOSubmitter>(this, iodata, IOUring_OPType::OP_WRITE));
+        iodata->senders.emplace_back(std::make_shared<SequentialIOSubmitter>(this, iodata, IOUring_OPType::OP_READ));
+        iodata->senders.emplace_back(std::make_shared<SequentialIOSubmitter>(this, iodata, IOUring_OPType::OP_WILLWRITE));
+        iodata->recver = std::make_shared<SequentialEventExecutor>(this, iodata);
         iodata->state = std::make_shared<DynamicBufferState>();
-        _IOUringData.Insert(Con, iodata);
+        _IOUringData.Insert(Con.get(), iodata);
     }
 
     int count = 0;
-    while (count < 5 && !SendDatas.empty())
+    while (count < 10 && !SendDatas.empty())
     {
 
         Buffer *buffer = nullptr;
-        if (!SendDatas.front(buffer))
+        if (!SendDatas.dequeue(buffer))
             break;
 
-        if (!buffer->Data() || buffer->Length() <= 0)
+        if (buffer)
         {
-            // 无效Buffer不发送
+            if (!buffer->Data() || buffer->Length() <= 0)
+            {
+                // 无效Buffer不发送
+                SAFE_DELETE(buffer);
+            }
+            else
+            {
+
+                IOuringOPData *opdata = IOuringOPData::CreateWriteOP(Con, *buffer);
+                bool submit = iodata->SubmitIOEvent(opdata);
+                SAFE_DELETE(buffer);
+                if (!submit)
+                {
+                    Con->GetSendMtx().unlock();
+                    break;
+                }
+            }
         }
-        else
-        {
-            iodata->sender->Send(*buffer, Con, fd);
-        }
-        SendDatas.dequeue(buffer);
-        SAFE_DELETE(buffer);
         count++;
     }
 
     if (!SendDatas.empty()) // 仍有数据未发送,关注其可写事件,等待下次可写事件
     {
-        postWillSendReq(Con);
+        IOuringOPData *opdata = IOuringOPData::CreateWillWriteOP(Con);
+        if (!iodata->SubmitIOEvent(opdata))
+        {
+            Con->GetSendMtx().unlock();
+            return false;
+        }
     }
 
     Con->GetSendMtx().unlock();
     return true;
+}
+
+void IOuringCoreProcess::LoopSubmitIOEvent()
+{
+
+    if (!_isrunning)
+        return;
+    else
+    {
+        std::lock_guard<std::mutex> lock(_IOEventLock);
+        std::vector<IOuringOPData *> opdatas;
+        auto GetEvents = [&opdatas](std::map<BaseTransportConnection *, std::shared_ptr<IOuringCoreProcess::NetCore_IOuringData>> &map) -> void
+        {
+            for (const auto &[Con, iodata] : map)
+            {
+                for (size_t i = 0; i < iodata->senders.size(); ++i)
+                {
+                    iodata->senders[i]->GetPostIOEvent(opdatas);
+                }
+            }
+        };
+        _IOUringData.EnsureCall(GetEvents);
+        if (opdatas.size() > 0)
+            DoPostIOEvents(opdatas);
+    }
+
+    while (_isrunning)
+    {
+        std::unique_lock<std::mutex> lock(_IOEventLock);
+        _IOEventCV.wait_for(lock, std::chrono::milliseconds(50));
+        if (!_isrunning)
+            break;
+
+        std::vector<IOuringOPData *> opdatas;
+        auto GetEvents = [&opdatas](std::map<BaseTransportConnection *, std::shared_ptr<IOuringCoreProcess::NetCore_IOuringData>> &map) -> void
+        {
+            for (const auto &[Con, iodata] : map)
+            {
+                for (size_t i = 0; i < iodata->senders.size(); ++i)
+                {
+                    iodata->senders[i]->GetPostIOEvent(opdatas);
+                }
+            }
+        };
+        _IOUringData.EnsureCall(GetEvents);
+        if (opdatas.size() > 0)
+            DoPostIOEvents(opdatas);
+    }
+}
+
+void IOuringCoreProcess::LoopSubmitExcuteEvent()
+{
+    if (!_isrunning)
+        return;
+    else
+    {
+        std::lock_guard<std::mutex> lock(_ExcuteLock);
+        std::vector<std::shared_ptr<SequentialEventExecutor::ExcuteEvent>> events;
+        auto GetEvents = [&events](std::map<BaseTransportConnection *, std::shared_ptr<IOuringCoreProcess::NetCore_IOuringData>> &map) -> void
+        {
+            for (auto it = map.begin(); it != map.end(); it++)
+            {
+                auto &iodata = it->second;
+                iodata->recver->GetPostExcuteEvent(events);
+            }
+        };
+        _IOUringData.EnsureCall(GetEvents);
+        if (events.size() > 0)
+            DoPostExcuteEvents(events);
+    }
+
+    while (_isrunning)
+    {
+        std::unique_lock<std::mutex> lock(_ExcuteLock);
+        _ExcuteCV.wait_for(lock, std::chrono::milliseconds(50));
+        if (!_isrunning)
+            break;
+
+        std::vector<std::shared_ptr<SequentialEventExecutor::ExcuteEvent>> events;
+        auto GetEvents = [&events](std::map<BaseTransportConnection *, std::shared_ptr<IOuringCoreProcess::NetCore_IOuringData>> &map) -> void
+        {
+            for (auto it = map.begin(); it != map.end(); it++)
+            {
+                auto &iodata = it->second;
+                iodata->recver->GetPostExcuteEvent(events);
+            }
+        };
+        _IOUringData.EnsureCall(GetEvents);
+        if (events.size() > 0)
+            DoPostExcuteEvents(events);
+    }
 }
 
 void IOuringCoreProcess::Loop()
@@ -354,75 +813,99 @@ void IOuringCoreProcess::Loop()
     while (_isrunning)
     {
 
-        // 非阻塞检测
-        unsigned ready = io_uring_cq_ready(&ring);
-        if (ready > 0)
+        std::vector<IOuringOPData *> opdatas;
+        if (!GetDoneIOEvents(opdatas))
         {
-            static unsigned max_batch = 100;
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            break;
+        }
+        if (!_isrunning)
+            break;
+
+        std::vector<IOuringOPData *> postOps;
+        uint32_t otherprocesscount = 0;
+        for (int i = 0; i < opdatas.size(); i++)
+        {
+            auto opdata = opdatas[i];
+            EventProcess(opdata, postOps);
+            IODATAMANAGER->ReleaseData(opdata);
+        }
+        opdatas.clear();
+
+        ProcessPendingDeletions();
+
+        if (postOps.size() > 0)
+        {
+            DoPostIOEvents(postOps);
+            postOps.clear();
+        }
+    }
+
+    io_uring_queue_exit(&ring);
+}
+
+bool IOuringCoreProcess::GetDoneIOEvents(std::vector<IOuringOPData *> &opdatas)
+{
+    // 非阻塞检测
+    io_uring_cqe *unusecqe = nullptr;
+    int ret = io_uring_wait_cqe(&ring, &unusecqe);
+    if (ret < 0 && ret != -EINTR)
+    {
+        std::cerr << "io_uring_submit_and_wait failed errno:" << errno << std::endl;
+        return false;
+    }
+
+    while (true)
+    {
+        unsigned ready = io_uring_cq_ready(&ring);
+        if (ready <= 0)
+        {
+            break;
+        }
+        else /* if (ready > 0) */
+        {
+            static unsigned max_batch = 10000;
             unsigned batch_size = std::min(max_batch, ready);
 
-            io_uring_cqe *cqes[100];
+            io_uring_cqe *cqes[batch_size];
             int cqecount = io_uring_peek_batch_cqe(&ring, cqes, batch_size);
             if (cqecount > 0)
             {
                 for (int i = 0; i < cqecount; i++)
                 {
-                    EventProcess(cqes[i]);
+                    io_uring_cqe *cqe = cqes[i];
+                    IOuringOPData *opdata = (IOuringOPData *)io_uring_cqe_get_data(cqe);
+                    if (opdata)
+                    {
+                        opdata->res = cqe->res;
+                        opdatas.emplace_back(opdata);
+                    }
                 }
                 io_uring_cq_advance(&ring, cqecount);
             }
         }
-        else
-        {
-            static int milliseconds = 300;
-            static __kernel_timespec ts{milliseconds / 1000, (milliseconds % 1000) * 1000000};
-
-            // 没有完成事件，等待一个
-            struct io_uring_cqe *cqe = nullptr;
-            int ret = io_uring_wait_cqe_timeout(&ring, &cqe, &ts);
-
-            if (ret == 0 && cqe)
-            {
-                EventProcess(cqe);
-                io_uring_cqe_seen(&ring, cqe);
-            }
-            else if (ret == -ETIME)
-            {
-                // 超时，正常返回
-            }
-            else if (ret < 0 && ret != -EINTR)
-            {
-                std::cout << "io_uring handle error!";
-            }
-        }
-        // io_uring_cqe *cqe = nullptr;
-        // int ret = io_uring_wait_cqe(&ring, &cqe);
-        // if (ret >= 0)
-        // {
-        // }
-        // else
-        // {
-        // }
-        ProcessPendingDeletions();
     }
-    io_uring_queue_exit(&ring);
+    return true;
 }
 
-int IOuringCoreProcess::EventProcess(io_uring_cqe *cqe)
+int IOuringCoreProcess::EventProcess(IOuringOPData *opdata, std::vector<IOuringOPData *> &postOps)
 {
-    if (!cqe)
+    if (!opdata)
         return -1;
 
-    IOuringOPData *data = (IOuringOPData *)io_uring_cqe_get_data(cqe);
-    int res = cqe->res;
+    std::shared_ptr<BaseTransportConnection> Con = opdata->weakCon.lock();
+    if (!Con) // 检查是否失效
+    {
+        DelNetFd(opdata->raw_ptr);
+        return -1;
+    }
 
-    int fd = data->fd;
-    BaseTransportConnection *Con = data->Con;
-    IOUring_OPType OP_Type = data->OP_Type;
+    int res = opdata->res;
+    int fd = opdata->fd;
+    IOUring_OPType OP_Type = opdata->OP_Type;
 
     if (fd <= 0 || !Con->ValidSocket())
     {
-        IODATAMANAGER->ReleaseData(data);
         return -1;
     }
 
@@ -432,220 +915,283 @@ int IOuringCoreProcess::EventProcess(io_uring_cqe *cqe)
 
         if (err == EAGAIN || err == EWOULDBLOCK)
         {
-            if (OP_Type == IOUring_OPType::OP_WRITE)
+            std::shared_ptr<NetCore_IOuringData> iodata;
+            if (_IOUringData.Find(Con.get(), iodata))
             {
-                std::shared_ptr<NetCore_IOuringData> iodata;
-                if (_IOUringData.Find(Con, iodata))
+                if (OP_Type == IOUring_OPType::OP_WRITE)
                 {
-                    if (iodata)
-                    {
-                        Buffer &buf = data->buffer;
-                        iodata->sender->Retry(Con, buf);
-                    }
+                    iodata->NotifyIOEventRetry(opdata);
                 }
-                IODATAMANAGER->ReleaseData(data);
+                else if (OP_Type == IOUring_OPType::OP_WILLWRITE)
+                {
+                    iodata->NotifyIOEventRetry(opdata);
+                }
+                else if (OP_Type == IOUring_OPType::OP_READ)
+                {
+                    auto readop = IOuringOPData::CreateReadOP(Con, opdata->buffer.Length());
+                    postOps.emplace_back(readop);
+                }
+                else if (OP_Type == IOUring_OPType::OP_ACCEPT)
+                {
+                    auto acceptop = IOuringOPData::CreateAcceptOP(Con);
+                    postOps.emplace_back(acceptop);
+                }
                 return 0;
             }
-            // 对于READ/ACCEPT的EAGAIN，重新提交请求
-            else if (OP_Type == IOUring_OPType::OP_READ)
+            else
             {
-                IODATAMANAGER->ReleaseData(data);
-                postRecvReq(Con);
-                return 0;
-            }
-            else if (OP_Type == IOUring_OPType::OP_ACCEPT)
-            {
-                IODATAMANAGER->ReleaseData(data);
-                postAcceptReq(Con);
-                return 0;
+                return -1;
             }
         }
         else
         {
-            IODATAMANAGER->ReleaseData(data);
-            DelNetFd(Con);
-            Con->OnRDHUP();
+            std::shared_ptr<NetCore_IOuringData> iodata;
+            if (_IOUringData.Find(Con.get(), iodata) && iodata && iodata->recver)
+            {
+                auto rdhupevent = SequentialEventExecutor::ExcuteEvent::CreateRDHUP(iodata);
+                iodata->recver->SubmitExcuteEvent(rdhupevent);
+            }
+            else
+            {
+                DelNetFd(Con.get());
+            }
             return -1;
         }
     }
 
     if (res == 0) // res==0连接正常断开
     {
-        IODATAMANAGER->ReleaseData(data);
-        DelNetFd(Con);
-        Con->OnRDHUP();
+        std::shared_ptr<NetCore_IOuringData> iodata;
+        if (_IOUringData.Find(Con.get(), iodata) && iodata && iodata->recver)
+        {
+            auto rdhupevent = SequentialEventExecutor::ExcuteEvent::CreateRDHUP(iodata);
+            iodata->recver->SubmitExcuteEvent(rdhupevent);
+        }
+        else
+        {
+            DelNetFd(Con.get());
+        }
         return 1;
     }
 
     switch (OP_Type)
     {
-    case IOUring_OPType::OP_READ:
-    {
-        if (!Con)
-            break;
-
-        int bufferlen = res;
-        if (bufferlen > 0)
-        {
-            UpdateDynamicBufferState(Con, bufferlen);
-            Buffer &buf = data->buffer;
-            Buffer buffer(buf.Byte(), bufferlen);
-            Con->OnREAD(fd, buffer);
-        }
-        postRecvReq(Con);
-        break;
-    }
     case IOUring_OPType::OP_WRITE:
     {
-        if (!Con)
-            break;
-
         int bufferwrite = res;
+        opdata->buffer.Seek(opdata->buffer.Postion() + bufferwrite);
         std::shared_ptr<NetCore_IOuringData> iodata;
-        if (_IOUringData.Find(Con, iodata))
+        if (_IOUringData.Find(Con.get(), iodata) && iodata)
         {
-            if (iodata)
-            {
-                Buffer &buf = data->buffer;
-                iodata->sender->Update(Con, bufferwrite, buf);
-            }
+            iodata->NotifyIOEventDone(opdata);
         }
-        break;
-    }
-    case IOUring_OPType::OP_ACCEPT:
-    {
-        if (!Con)
-            break;
-
-        int client_fd = res;
-        if (client_fd > 0)
-        {
-            sockaddr_in client_addr = data->client_addr;
-            Con->OnACCEPT(fd, client_fd, client_addr);
-        }
-        postAcceptReq(Con);
         break;
     }
     case IOUring_OPType::OP_WILLWRITE:
     {
         if (Con->GetFd() == fd && Con->GetNetType() == NetType::Client)
         {
-            SendRes((TCPTransportConnection *)Con);
+            std::shared_ptr<TCPTransportConnection> tcpCon(
+                Con, static_cast<TCPTransportConnection *>(Con.get()));
+            SendRes(tcpCon);
+        }
+        std::shared_ptr<NetCore_IOuringData> iodata;
+        if (_IOUringData.Find(Con.get(), iodata) && iodata)
+        {
+            iodata->NotifyIOEventDone(opdata);
         }
         break;
     }
+    case IOUring_OPType::OP_READ:
+    {
+        std::shared_ptr<NetCore_IOuringData> iodata;
+        if (_IOUringData.Find(Con.get(), iodata) && iodata)
+        {
+            int bufferlen = res;
+            if (bufferlen > 0)
+            {
+                iodata->state->Update(bufferlen);
+                Buffer &buf = opdata->buffer;
+                Buffer buffer(buf.Byte(), bufferlen);
+                auto readevent = SequentialEventExecutor::ExcuteEvent::CreateReadEvent(iodata, buffer);
+                iodata->recver->SubmitExcuteEvent(readevent);
+            }
+
+            iodata->NotifyIOEventDone(opdata);
+            auto readop = IOuringOPData::CreateReadOP(Con, iodata->state->GetDynamicSize());
+            postOps.emplace_back(readop);
+        }
+        break;
+    }
+    case IOUring_OPType::OP_ACCEPT:
+    {
+        int client_fd = res;
+        std::shared_ptr<NetCore_IOuringData> iodata;
+        if (_IOUringData.Find(Con.get(), iodata) && iodata)
+        {
+            if (client_fd > 0 && Con->GetNetType() == NetType::Listener)
+            {
+                sockaddr_in client_addr = opdata->client_addr;
+                auto acceptevent = SequentialEventExecutor::ExcuteEvent::CreateAcceptEvent(iodata, client_fd, client_addr);
+                iodata->recver->SubmitExcuteEvent(acceptevent);
+            }
+            iodata->NotifyIOEventDone(opdata);
+            auto acceptop = IOuringOPData::CreateAcceptOP(Con);
+            postOps.emplace_back(acceptop);
+        }
+        break;
+    }
+
     default:
         break;
     }
 
-    IODATAMANAGER->ReleaseData(data);
     return 1;
 }
 
-bool IOuringCoreProcess::postAcceptReq(BaseTransportConnection *Con)
+void IOuringCoreProcess::DoPostIOEvents(std::vector<IOuringOPData *> opdatas)
+{
+    std::lock_guard<CriticalSectionLock> lock(_doPostIOEventLock);
+
+    for (auto opdata : opdatas)
+    {
+        switch (opdata->OP_Type)
+        {
+        case IOUring_OPType::OP_WRITE:
+        {
+            SubmitWriteEvent(opdata);
+        }
+        break;
+        case IOUring_OPType::OP_READ:
+        {
+            SubmitReadEvent(opdata);
+        }
+        break;
+        case IOUring_OPType::OP_ACCEPT:
+        {
+            SubmitAcceptEvent(opdata);
+        }
+        break;
+        case IOUring_OPType::OP_WILLWRITE:
+        {
+            SubmitWillWriteEvent(opdata);
+        }
+        break;
+
+        default:
+            IODATAMANAGER->ReleaseData(opdata);
+            break;
+        }
+    }
+    int submitted = io_uring_submit(&ring);
+    if (submitted < 0)
+    {
+        std::cout << "io_uring_submit error!";
+    }
+}
+
+void IOuringCoreProcess::DoPostExcuteEvents(std::vector<std::shared_ptr<SequentialEventExecutor::ExcuteEvent>> &events)
+{
+    auto task =
+        [this](std::shared_ptr<SequentialEventExecutor::ExcuteEvent> event) -> void
+    {
+        if (!event)
+            return;
+
+        auto iodata = event->weakdata.lock();
+        if (!iodata)
+            return;
+
+        try
+        {
+            auto connection = iodata->weakCon.lock();
+            if (event->type == SequentialEventExecutor::ExcuteEvent::EventType::READ_HUP)
+                this->DelNetFd(connection.get());
+            if (connection)
+            {
+                if (event->type == SequentialEventExecutor::ExcuteEvent::EventType::READ_DATA)
+                {
+                    Buffer &buf = *(event->data);
+                    connection->OnREAD(connection->GetFd(),
+                                       buf);
+                }
+                else if (event->type == SequentialEventExecutor::ExcuteEvent::EventType::ACCEPT_CONNECTION)
+                    connection->OnACCEPT(connection->GetFd(),
+                                         event->accept_info.client_fd, event->accept_info.client_addr);
+                else if (event->type == SequentialEventExecutor::ExcuteEvent::EventType::READ_HUP)
+                {
+                    connection->OnRDHUP();
+                }
+            }
+        }
+        catch (const std::exception &e)
+        {
+            std::cerr << "NetCoreCallback Error!" << e.what() << '\n';
+        }
+
+        auto recver = iodata->recver;
+        if (recver)
+            recver->NotifyDone();
+    };
+    for (auto event : events)
+    {
+        _ExcuteEventProcessPool.submit(task, event);
+    }
+}
+
+bool IOuringCoreProcess::SubmitAcceptEvent(IOuringOPData *opdata)
 {
     io_uring_sqe *sqe = io_uring_get_sqe(&ring);
     if (!sqe)
         return false;
 
-    IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_ACCEPT, Con->GetFd(), Con, 0);
+    io_uring_prep_accept(sqe, opdata->fd, (struct sockaddr *)&(opdata->client_addr), &(opdata->addr_len), 0);
+    io_uring_sqe_set_data(sqe, (void *)opdata);
 
-    data->addr_len = sizeof(sockaddr_in);
-    io_uring_prep_accept(sqe, Con->GetFd(), (struct sockaddr *)&(data->client_addr), &(data->addr_len), 0);
-    io_uring_sqe_set_data(sqe, (void *)data);
-
-    int submitted = io_uring_submit(&ring);
-    if (submitted < 0)
-    {
-        IODATAMANAGER->ReleaseData(data);
-        return false;
-    }
     return true;
 }
 
-bool IOuringCoreProcess::postSendReq(BaseTransportConnection *Con, Buffer &buf)
+bool IOuringCoreProcess::SubmitWriteEvent(IOuringOPData *opdata)
 {
     io_uring_sqe *sqe = io_uring_get_sqe(&ring);
     if (!sqe)
         return false;
 
-    IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_WRITE, Con->GetFd(), Con, 0);
-    int oripos = buf.Postion();
-    data->buffer.QuoteFromBuf(buf);
-    data->buffer.Seek(oripos);
+    io_uring_prep_send(sqe, opdata->fd, opdata->buffer.Data() + opdata->buffer.Postion(), opdata->buffer.Remaind(), 0);
+    io_uring_sqe_set_data(sqe, (void *)opdata);
 
-    io_uring_prep_send(sqe, Con->GetFd(), data->buffer.Data() + data->buffer.Postion(), data->buffer.Remaind(), 0);
-    io_uring_sqe_set_data(sqe, (void *)data);
-
-    int submitted = io_uring_submit(&ring);
-    if (submitted < 0)
-    {
-        IODATAMANAGER->ReleaseData(data);
-        return false;
-    }
     return true;
 }
 
-bool IOuringCoreProcess::postRecvReq(BaseTransportConnection *Con)
+bool IOuringCoreProcess::SubmitReadEvent(IOuringOPData *opdata)
 {
     io_uring_sqe *sqe = io_uring_get_sqe(&ring);
     if (!sqe)
         return false;
 
-    uint32_t size = GetDynamicBufferSize(Con);
+    io_uring_prep_recv(sqe, opdata->fd, opdata->buffer.Data(), opdata->buffer.Length(), 0);
+    io_uring_sqe_set_data(sqe, (void *)opdata);
 
-    IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_READ, Con->GetFd(), Con, size);
-    io_uring_prep_recv(sqe, Con->GetFd(), data->buffer.Data(), data->buffer.Length(), 0);
-    io_uring_sqe_set_data(sqe, (void *)data);
-
-    int submitted = io_uring_submit(&ring);
-    if (submitted < 0)
-    {
-        IODATAMANAGER->ReleaseData(data);
-        return false;
-    }
     return true;
 }
 
-bool IOuringCoreProcess::postWillSendReq(BaseTransportConnection *Con)
+bool IOuringCoreProcess::SubmitWillWriteEvent(IOuringOPData *opdata)
 {
     io_uring_sqe *sqe = io_uring_get_sqe(&ring);
     if (!sqe)
         return false;
 
-    IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_WILLWRITE, Con->GetFd(), Con, 0);
+    io_uring_prep_send(sqe, opdata->fd, opdata->buffer.Data(), opdata->buffer.Length(), 0);
+    io_uring_sqe_set_data(sqe, (void *)opdata);
 
-    io_uring_prep_send(sqe, Con->GetFd(), data->buffer.Data(), data->buffer.Length(), 0);
-    io_uring_sqe_set_data(sqe, (void *)data);
-
-    int submitted = io_uring_submit(&ring);
-    if (submitted < 0)
-    {
-        IODATAMANAGER->ReleaseData(data);
-        return false;
-    }
     return true;
-}
-
-void IOuringCoreProcess::UpdateDynamicBufferState(BaseTransportConnection *Con, uint32_t newbufferrecvlen)
-{
-    std::shared_ptr<NetCore_IOuringData> iodata;
-    if (_IOUringData.Find(Con, iodata))
-        iodata->state->Update(newbufferrecvlen);
-}
-uint32_t IOuringCoreProcess::GetDynamicBufferSize(BaseTransportConnection *Con)
-{
-    std::shared_ptr<NetCore_IOuringData> iodata;
-    if (_IOUringData.Find(Con, iodata))
-        return iodata->state->GetDynamicSize();
-    return RECVBUFFERMINLEN;
 }
 
 void IOuringCoreProcess::ProcessPendingDeletions()
 {
     std::vector<DeleteLaterImpl *> deletions;
     _pendingDeletions.EnsureCall(
-        [&](std::vector<DeleteLaterImpl *> &array) -> void
+        [&deletions](std::vector<DeleteLaterImpl *> &array) -> void
         {
             deletions.swap(array); // 取出待删除任务
         }

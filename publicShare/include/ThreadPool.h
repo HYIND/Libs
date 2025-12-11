@@ -18,6 +18,7 @@ class ThreadPool
 {
 private:
     bool _stop = false;
+    uint32_t _threadscount;
     SafeQueue<std::function<void()>> _queue;
     std::vector<std::thread> _threads;
     std::mutex _mutex;
@@ -36,7 +37,7 @@ private:
     };
 
 public:
-    EXPORT_FUNC ThreadPool(const int threads_num = 4);
+    EXPORT_FUNC ThreadPool(uint32_t threads_num = 4);
 
     EXPORT_FUNC ThreadPool(const ThreadPool &) = delete;
     EXPORT_FUNC ThreadPool(ThreadPool &&) = delete;

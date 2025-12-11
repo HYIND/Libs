@@ -7,6 +7,7 @@ class PureTCPClient : public TCPEndPoint
 {
 public:
     EXPORT_FUNC PureTCPClient(TCPTransportConnection *con = nullptr);
+    EXPORT_FUNC PureTCPClient(std::shared_ptr<TCPTransportConnection> con);
     EXPORT_FUNC ~PureTCPClient();
 
 public:

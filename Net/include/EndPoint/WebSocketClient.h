@@ -24,6 +24,7 @@ class WebSocketClient : public TCPEndPoint
 {
 public:
     EXPORT_FUNC WebSocketClient(TCPTransportConnection *con = nullptr);
+    EXPORT_FUNC WebSocketClient(std::shared_ptr<TCPTransportConnection> con);
     EXPORT_FUNC ~WebSocketClient();
 
 public:

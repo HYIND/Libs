@@ -32,10 +32,10 @@ public:
 
     EXPORT_FUNC virtual bool Send(const Buffer &buffer) = 0;
 
-    EXPORT_FUNC virtual void OnBindMessageCallBack(){};
-    EXPORT_FUNC virtual void OnBindCloseCallBack(){};
+    EXPORT_FUNC virtual void OnBindMessageCallBack() {};
+    EXPORT_FUNC virtual void OnBindCloseCallBack() {};
 
-    EXPORT_FUNC TCPTransportConnection *GetBaseCon();
+    EXPORT_FUNC std::shared_ptr<TCPTransportConnection> GetBaseCon();
 
 public:
     // 2表示协议握手所需的字节流长度不足，0表示握手失败，关闭连接，1表示握手成功，建立连接
@@ -51,7 +51,7 @@ public:
 
 protected:
     TCPNetProtocol Protocol;
-    TCPTransportConnection *BaseCon;
+    std::shared_ptr<TCPTransportConnection> BaseCon;
     bool isHandshakeComplete = false;
 
     std::function<void(TCPEndPoint *, Buffer *)> _callbackMessage;
@@ -71,11 +71,11 @@ public:
     EXPORT_FUNC void BindEstablishConnectionCallBack(std::function<void(TCPEndPoint *)> callback);
 
 private:
-    EXPORT_FUNC void RecvCon(TCPTransportConnection *waitClient);
+    EXPORT_FUNC void RecvCon(std::shared_ptr<TCPTransportConnection> waitCon);
     EXPORT_FUNC void Handshake(TCPTransportConnection *waitCon, Buffer *buf);
 
 private:
-    TCPTransportListener BaseListener;
+    std::shared_ptr<TCPTransportListener> BaseListener;
     TCPNetProtocol _Protocol;
     std::function<void(TCPEndPoint *)> _callBackEstablish;
     SafeArray<TCPEndPoint *> waitClients; // 等待校验协议的客户端

@@ -4,7 +4,8 @@
 
 TcpProtocolListener::TcpProtocolListener(TCPNetProtocol proto) : _Protocol(proto)
 {
-    BaseListener.BindAcceptCallBack(std::bind(&TcpProtocolListener::RecvCon, this, std::placeholders::_1));
+    BaseListener = std::make_shared<TCPTransportListener>();
+    BaseListener->BindAcceptCallBack(std::bind(&TcpProtocolListener::RecvCon, this, std::placeholders::_1));
 }
 TcpProtocolListener::~TcpProtocolListener()
 {
@@ -22,7 +23,7 @@ void TcpProtocolListener::SetProtocol(const TCPNetProtocol &proto)
 
 bool TcpProtocolListener::Listen(const std::string &IP, int Port)
 {
-    return BaseListener.Listen(IP, Port);
+    return BaseListener->Listen(IP, Port);
 }
 
 void TcpProtocolListener::BindEstablishConnectionCallBack(std::function<void(TCPEndPoint *)> callback)
@@ -30,7 +31,7 @@ void TcpProtocolListener::BindEstablishConnectionCallBack(std::function<void(TCP
     _callBackEstablish = callback;
 }
 
-void TcpProtocolListener::RecvCon(TCPTransportConnection *waitCon)
+void TcpProtocolListener::RecvCon(std::shared_ptr<TCPTransportConnection> waitCon)
 {
     switch (_Protocol)
     {
@@ -63,7 +64,7 @@ void TcpProtocolListener::Handshake(TCPTransportConnection *waitCon, Buffer *buf
             for (auto it = array.begin(); it != array.end(); it++)
             {
                 TCPEndPoint *client = *it;
-                if (client->GetBaseCon() != waitCon)
+                if (client->GetBaseCon().get() != waitCon)
                     continue;
 
                 {
@@ -84,6 +85,7 @@ void TcpProtocolListener::Handshake(TCPTransportConnection *waitCon, Buffer *buf
                     {
                         client->Release();
                         array.erase(it);
+                        SAFE_DELETE(client);
                     }
                 }
                 return;
@@ -134,20 +136,20 @@ void TCPEndPoint::BindCloseCallBack(std::function<void(TCPEndPoint *)> callback)
 
 bool TCPEndPoint::RecvBuffer(TCPTransportConnection *con, Buffer *buffer)
 {
-    if (con != BaseCon)
+    if (con != BaseCon.get())
         return false;
     return OnRecvBuffer(buffer);
 }
 
 bool TCPEndPoint::ConnectClose(TCPTransportConnection *con)
 {
-    if (con != BaseCon)
+    if (con != BaseCon.get())
         return false;
 
     return OnConnectClose();
 }
 
-TCPTransportConnection *TCPEndPoint::GetBaseCon()
+std::shared_ptr<TCPTransportConnection> TCPEndPoint::GetBaseCon()
 {
     return BaseCon;
 }

@@ -1,17 +1,18 @@
 #include "ThreadPool.h"
 
-ThreadPool::ThreadPool(int threads_num)
-    : _threads(std::vector<std::thread>(threads_num)), _stop(false)
+ThreadPool::ThreadPool(uint32_t threads_num)
+    : _stop(false)
 {
     if (threads_num <= 0)
         threads_num = std::thread::hardware_concurrency();
     _threads.reserve(threads_num);
+    _threadscount = threads_num;
 }
 void ThreadPool::start()
 {
-    for (int i = 0; i < _threads.size(); ++i)
+    for (int i = 0; i < _threadscount; ++i)
     {
-        _threads.at(i) = std::thread(ThreadWorker(this, i)); // 分配工作线程
+        _threads.emplace_back(std::thread(ThreadWorker(this, i))); // 分配工作线程
     }
 }
 void ThreadPool::stop()
@@ -33,10 +34,10 @@ void ThreadPool::stop()
 
 void ThreadPool::ThreadWorker::operator()()
 {
-    std::function<void()> func; // 定义基础函数类func
-    bool dequeued;              // 是否取出队列中元素
+    bool dequeued; // 是否取出队列中元素
     while (true)
     {
+        std::function<void()> func; // 定义基础函数类func
         {
             // 为线程环境加锁，互访问工作线程的休眠和唤醒
             std::unique_lock<std::mutex> lock(m_pool->_mutex);

@@ -3,7 +3,6 @@
 
 using namespace std;
 
-#ifdef __linux__
 int NewServerSocket(const std::string &IP, uint16_t socket_port, __socket_type protocol, sockaddr_in &sock_addr)
 {
 	memset(&sock_addr, '0', sizeof(sock_addr));
@@ -24,29 +23,7 @@ int NewServerSocket(const std::string &IP, uint16_t socket_port, __socket_type p
 
 	return socket_fd;
 }
-#elif _WIN32
-SOCKET NewServerSocket(const std::string &IP, uint16_t socket_port, int protocol, sockaddr_in &sock_addr)
-{
-	memset(&sock_addr, '0', sizeof(sock_addr));
-	sock_addr.sin_family = AF_INET;
-	sock_addr.sin_port = htons(socket_port);
 
-	inet_pton(AF_INET, IP.c_str(), &(sock_addr.sin_addr.s_addr));
-
-	SOCKET _socket = WSASocket(sock_addr.sin_family, protocol, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
-
-	int result = 0;
-	result = ::bind(_socket, (struct sockaddr *)&sock_addr, sizeof(struct sockaddr));
-	if (result)
-	{
-		perror("bind socket error");
-		return -1;
-	}
-
-	return _socket;
-}
-#endif
-#ifdef __linux__
 int NewClientSocket(const std::string &IP, uint16_t socket_port, __socket_type protocol, sockaddr_in &sock_addr)
 {
 	memset(&sock_addr, '0', sizeof(sock_addr));
@@ -59,34 +36,20 @@ int NewClientSocket(const std::string &IP, uint16_t socket_port, __socket_type p
 
 	return socket_fd;
 }
-#elif _WIN32
-SOCKET NewClientSocket(const std::string &IP, uint16_t socket_port, int protocol, sockaddr_in &sock_addr)
-{
-	memset(&sock_addr, '0', sizeof(sock_addr));
-	sock_addr.sin_family = AF_INET;
-	sock_addr.sin_port = htons(socket_port);
-
-	inet_pton(AF_INET, IP.c_str(), &(sock_addr.sin_addr.s_addr));
-
-	SOCKET _socket = WSASocket(sock_addr.sin_family, protocol, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
-	return _socket;
-}
-#endif
 
 BaseTransportConnection::BaseTransportConnection(SocketType type, bool isclient) : _type(type), _isclient(isclient)
 {
 }
-#ifdef __linux__
+std::shared_ptr<BaseTransportConnection> BaseTransportConnection::GetBaseShared()
+{
+	return shared_from_this();
+}
+
 int BaseTransportConnection::GetFd()
 {
 	return this->_fd;
 }
-#elif _WIN32
-SOCKET BaseTransportConnection::GetSocket()
-{
-	return this->_socket;
-}
-#endif
+
 SocketType BaseTransportConnection::GetType()
 {
 	return this->_type;
@@ -97,11 +60,7 @@ uint16_t BaseTransportConnection::GetPort() { return ntohs(_addr.sin_port); }
 NetType BaseTransportConnection::GetNetType() { return _isclient ? NetType::Client : NetType::Listener; }
 bool BaseTransportConnection::ValidSocket()
 {
-#ifdef __linux__
 	return this->_fd > 0;
-#elif _WIN32
-	return this->_socket != INVALID_SOCKET;
-#endif
 }
 
 TCPTransportListener::TCPTransportListener() : BaseTransportConnection(SocketType::TCP, false)
@@ -119,7 +78,6 @@ bool TCPTransportListener::Listen(const string &IP, int Port)
 	if (ValidSocket())
 		ReleaseListener();
 
-#ifdef __linux__
 	int fd = NewServerSocket(IP, Port, _type == SocketType::UDP ? SOCK_DGRAM : SOCK_STREAM, _addr);
 	if (fd == -1)
 	{
@@ -134,62 +92,31 @@ bool TCPTransportListener::Listen(const string &IP, int Port)
 	}
 	this->_fd = fd;
 
-#elif _WIN32
-	SOCKET socket = NewServerSocket(IP, Port, _type == SocketType::UDP ? SOCK_DGRAM : SOCK_STREAM, _addr);
-	if (socket == INVALID_SOCKET)
-	{
-		perror("Create fd error");
-		return false;
-	}
-	int ret = listen(socket, 100);
-	if (ret < 0)
-	{
-		perror("listen socket error");
-		return false;
-	}
-	this->_socket = socket;
-#endif
-
-	NetCore->AddNetFd(this);
+	NetCore->AddNetFd(GetBaseShared());
 
 	return true;
 }
 
 bool TCPTransportListener::ReleaseListener()
 {
-#ifdef __linux__
 	if (close(_fd) == -1)
 		return false;
-#elif _WIN32
-	if (closesocket(_socket) != 0)
-		return false;
-#endif
 
 	NetCore->DelNetFd(this);
-#ifdef __linux__
 	_fd = -1;
-#elif _WIN32
-	_socket = INVALID_SOCKET;
-#endif
 	return true;
 }
 
 bool TCPTransportListener::ReleaseClients()
 {
-	for (auto it : clients)
-	{
-		TCPTransportConnection *client = it.second;
-		client->Release();
-	}
 	return true;
 }
 
-void TCPTransportListener::BindAcceptCallBack(function<void(TCPTransportConnection *)> callback)
+void TCPTransportListener::BindAcceptCallBack(std::function<void(std::shared_ptr<TCPTransportConnection>)> callback)
 {
 	this->_callbackAccept = callback;
 }
 
-#ifdef __linux__
 void TCPTransportListener::OnREAD(int fd)
 {
 	OnACCEPT(fd);
@@ -210,10 +137,9 @@ void TCPTransportListener::OnACCEPT(int fd)
 			int clientFd = accept(this->_fd, (struct sockaddr *)&addr, &length);
 			if (clientFd != -1)
 			{
-				TCPTransportConnection *client = new TCPTransportConnection();
+				std::shared_ptr<TCPTransportConnection> client = std::make_shared<TCPTransportConnection>();
 				client->Apply(clientFd, addr, this->_type);
-				this->clients.insert(pair<int, TCPTransportConnection *>(clientFd, client));
-				cout << "tcpclient connect ,address: " << inet_ntoa(addr.sin_addr) << ":" << ntohs(addr.sin_port) << endl;
+				// cout << "tcpclient connect ,address: " << inet_ntoa(addr.sin_addr) << ":" << ntohs(addr.sin_port) << endl;
 				if (_callbackAccept)
 					_callbackAccept(client);
 			}
@@ -233,32 +159,13 @@ void TCPTransportListener::OnACCEPT(int fd, int newclient, sockaddr_in addr)
 			return;
 
 		int clientFd = newclient;
-		TCPTransportConnection *client = new TCPTransportConnection();
+		std::shared_ptr<TCPTransportConnection> client = std::make_shared<TCPTransportConnection>();
 		client->Apply(clientFd, addr, this->_type);
-		this->clients.insert(pair<int, TCPTransportConnection *>(clientFd, client));
-		cout << "tcpclient connect ,address: " << inet_ntoa(addr.sin_addr) << ":" << ntohs(addr.sin_port) << endl;
+		// cout << "tcpclient connect ,address: " << inet_ntoa(addr.sin_addr) << ":" << ntohs(addr.sin_port) << endl;
 		if (_callbackAccept)
 			_callbackAccept(client);
 	}
 }
-#elif _WIN32
-void TCPTransportListener::OnACCEPT(SOCKET socket, sockaddr_in *addr)
-{
-	if (socket != INVALID_SOCKET)
-	{
-		TCPTransportConnection *client = new TCPTransportConnection();
-		client->Apply(socket, *addr, this->_type);
-		this->clients.insert(pair<int, TCPTransportConnection *>(socket, client));
-		cout << "client connect ,address: " << inet_ntoa(addr->sin_addr) << ":" << ntohs(addr->sin_port) << endl;
-		if (_callbackAccept)
-			_callbackAccept(client);
-	}
-	else
-	{
-		cout << "socket accept fail!\n";
-	}
-}
-#endif
 
 void TCPTransportListener::OnRDHUP()
 {
@@ -277,7 +184,6 @@ bool TCPTransportConnection::Connect(const std::string &IP, uint16_t Port)
 	if (ValidSocket())
 		Release();
 
-#ifdef __linux__
 	int fd = NewClientSocket(IP, Port, _type == SocketType::UDP ? SOCK_DGRAM : SOCK_STREAM, _addr);
 	if (fd == -1)
 	{
@@ -291,32 +197,10 @@ bool TCPTransportConnection::Connect(const std::string &IP, uint16_t Port)
 		return false;
 	}
 	this->_fd = fd;
-#elif _WIN32
-	SOCKET socket = NewClientSocket(IP, Port, _type == SocketType::UDP ? SOCK_DGRAM : SOCK_STREAM, _addr);
-	if (socket == INVALID_SOCKET)
-	{
-		perror("Create fd error");
-		return false;
-	}
-	int result = connect(socket, (struct sockaddr *)&_addr, sizeof(struct sockaddr));
-	if (result == -1)
-	{
-		perror("connect socket error");
-		return false;
-	}
 
-	int flag = 1;
-	setsockopt(_socket, IPPROTO_TCP, TCP_NODELAY, (const char *)&flag, sizeof(flag));
-	unsigned long ul = 1;
-	ioctlsocket(_socket, FIONBIO, &ul);
-
-	this->_socket = socket;
-#endif
-
-	NetCore->AddNetFd(this);
+	NetCore->AddNetFd(GetBaseShared());
 	return true;
 }
-#ifdef __linux__
 void TCPTransportConnection::Apply(const int fd, const sockaddr_in &sockaddr, const SocketType type)
 {
 	if (ValidSocket())
@@ -325,39 +209,25 @@ void TCPTransportConnection::Apply(const int fd, const sockaddr_in &sockaddr, co
 	this->_fd = fd;
 	this->_addr = sockaddr;
 	this->_type = type;
-	NetCore->AddNetFd(this);
+	NetCore->AddNetFd(GetBaseShared());
 }
-#elif _WIN32
-void TCPTransportConnection::Apply(const SOCKET socket, const sockaddr_in &sockaddr, const SocketType type)
-{
-	if (ValidSocket())
-		Release();
-
-	this->_socket = socket;
-	this->_addr = sockaddr;
-	this->_type = type;
-	NetCore->AddNetFd(this);
-}
-#endif
 
 bool TCPTransportConnection::Release()
 {
-	bool result = false;
 	NetCore->DelNetFd(this);
-#ifdef __linux__
+	bool result = false;
 	if (close(_fd) == -1)
 		result = false;
-	_fd = -1;
-#elif _WIN32
-	if (closesocket(_socket) != 0)
-		result = false;
-	_socket = INVALID_SOCKET;
-#endif
-	result = true;
+	else
+	{
+		_fd = -1;
+		result = true;
+	}
 
 	Buffer *buf = nullptr;
 	while (_RecvDatas.dequeue(buf))
 		SAFE_DELETE(buf);
+	std::lock_guard<CriticalSectionLock> lock(_SendResMtx);
 	while (_SendDatas.dequeue(buf))
 		SAFE_DELETE(buf);
 
@@ -374,7 +244,7 @@ bool TCPTransportConnection::Send(const Buffer &buffer)
 		Buffer *buf = new Buffer();
 		buf->CopyFromBuf(buffer);
 		_SendDatas.enqueue(buf);
-		return NetCore->SendRes(this);
+		return NetCore->SendRes(GetBaseShared());
 	}
 	catch (const std::exception &e)
 	{
@@ -383,7 +253,6 @@ bool TCPTransportConnection::Send(const Buffer &buffer)
 	}
 }
 
-#ifdef __linux__
 int TCPTransportConnection::Read(Buffer &buffer, int length)
 {
 	Buffer buf(length);
@@ -392,18 +261,6 @@ int TCPTransportConnection::Read(Buffer &buffer, int length)
 		buffer.QuoteFromBuf(buf);
 	return result;
 }
-
-#elif _WIN32
-int TCPTransportConnection::Read(Buffer &buffer, int length)
-{
-	// Buffer buf(length);
-	// int result = ::recv(_fd, buf.Data(), length, MSG_NOSIGNAL);
-	// if (result > 0)
-	//     buffer.QuoteFromBuf(buf);
-	// return result;
-	return 1;
-}
-#endif
 
 void TCPTransportConnection::BindBufferCallBack(function<void(TCPTransportConnection *, Buffer *)> callback)
 {
@@ -415,9 +272,8 @@ void TCPTransportConnection::BindRDHUPCallBack(function<void(TCPTransportConnect
 }
 SafeQueue<Buffer *> &TCPTransportConnection::GetRecvData() { return _RecvDatas; }
 SafeQueue<Buffer *> &TCPTransportConnection::GetSendData() { return _SendDatas; }
-std::mutex &TCPTransportConnection::GetSendMtx() { return _SendResMtx; }
+CriticalSectionLock &TCPTransportConnection::GetSendMtx() { return _SendResMtx; }
 
-#ifdef __linux__
 void TCPTransportConnection::OnREAD(int fd)
 {
 	auto read = [&](Buffer &buf, int length) -> bool
@@ -529,104 +385,8 @@ void TCPTransportConnection::ProcessRecvQueue()
 	}
 }
 
-#elif _WIN32
-void TCPTransportConnection::OnREAD(SOCKET socket, Buffer &buffer)
-{
-	if (socket != this->_socket)
-		return;
-	Package *pak = nullptr;
-	int left = buffer.Length();
-	int read = 0;
-	while (left > 0)
-	{
-		if (!_RecvDatas.back(pak) || pak->enable)
-		{
-			if (_RecvDatas.size() > 300)
-			{
-				Package *pak = nullptr;
-				if (_RecvDatas.dequeue(pak))
-					SAFE_DELETE(pak);
-			}
-			pak = new Package();
-			pak->enable = false;
-			_RecvDatas.enqueue(pak);
-		}
-
-		if (pak->read < sizeof(MsgHeader))
-		{
-			int min = min(sizeof(MsgHeader) - pak->read, left);
-			pak->buffer.Write((char *)(buffer.Data()) + read, min);
-			read += min;
-			left -= min;
-			pak->read += min;
-			if (pak->read == sizeof(MsgHeader))
-			{
-				MsgHeader header;
-				memcpy(&header, pak->buffer.Data(), sizeof(MsgHeader));
-				pak->seq = header.seq;
-				pak->ack = header.ack;
-				pak->buffer.ReSize(header.length);
-			}
-			else
-			{
-				int i = 1;
-				i++;
-			}
-		}
-		else
-		{
-			int pakBuffeHasRead = pak->read - sizeof(MsgHeader);
-			int pakBufferNeedRead = pak->buffer.Length() - pakBuffeHasRead;
-			int min = min(pakBufferNeedRead, left);
-			pak->buffer.Write((char *)(buffer.Data()) + read, min);
-			read += min;
-			left -= min;
-			pak->read += min;
-			if (min == pakBufferNeedRead)
-			{
-				pak->enable = true;
-				if (pak->ack != -1)
-				{
-					if (_AwaitMap.find(pak->ack) != _AwaitMap.end())
-					{
-						if (_AwaitMap[pak->ack]->respsonse)
-							_AwaitMap[pak->ack]->respsonse->CopyFromBuf(pak->buffer);
-
-						int count = 0;
-						while (!_AwaitMap[pak->ack]->isWait && count < 5)
-						{
-							count++;
-							Sleep(10);
-						}
-						Sleep(5);
-						printf("notify_all , pak->ack:%d\n", pak->ack);
-						_AwaitMap[pak->ack]->_cv.notify_all();
-					}
-				}
-				else if (_callbackMessage)
-				{
-					Buffer resposne;
-					_callbackMessage(this, pak, &resposne);
-					if (resposne.Length() > 0)
-						this->AsyncSend(resposne, pak->seq);
-					resposne.Release();
-				}
-			}
-			else
-			{
-				int i = 1;
-				i++;
-			}
-		}
-	}
-}
-#endif
-
 void TCPTransportConnection::OnRDHUP()
 {
-	// cout << "OnRDHUP" << endl;
-	// NetCore->DelNetFd(this);
-
 	if (_callbackRDHUP)
 		_callbackRDHUP(this);
 }

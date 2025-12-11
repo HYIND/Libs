@@ -5,62 +5,91 @@
 #include <liburing.h>
 #include "Core/TCPTransportWarpper.h"
 #include "Core/DeleteLater.h"
+#include "ThreadPool.h"
 
-enum class sendstate
-{
-    none = -1,
-    idle = 0,
-    sending = 1
-};
+struct IOuringOPData;
+
+enum class IOUring_OPType;
 
 class IOuringCoreProcess
 {
 
-public:
-    static IOuringCoreProcess *Instance();
-    int Run();
-    bool Running();
-
-public:
-    bool AddNetFd(BaseTransportConnection *Con);
-    bool DelNetFd(BaseTransportConnection *Con);
-    bool SendRes(TCPTransportConnection *Con);
-    void AddPendingDeletion(DeleteLaterImpl *ptr);
+    class SequentialIOSubmitter;
+    class SequentialEventExecutor;
+    class DynamicBufferState;
 
 private:
-    IOuringCoreProcess();
-    void Loop();
-    int EventProcess(io_uring_cqe *cqe);
-    void ThreadEnd();
-    void ProcessPendingDeletions();
-
-private:
-    bool postAcceptReq(BaseTransportConnection *Con);
-    bool postSendReq(BaseTransportConnection *Con, Buffer &buf);
-    bool postRecvReq(BaseTransportConnection *Con);
-    bool postWillSendReq(BaseTransportConnection *Con);
-    void UpdateDynamicBufferState(BaseTransportConnection *Con, uint32_t newbufferrecvlen);
-    uint32_t GetDynamicBufferSize(BaseTransportConnection *Con);
-
-private:
-    class SequentialSender
+    struct NetCore_IOuringData
     {
+        int fd;
+        std::weak_ptr<BaseTransportConnection> weakCon;
+        std::vector<std::shared_ptr<SequentialIOSubmitter>> senders; // IO流水线
+        std::shared_ptr<SequentialEventExecutor> recver;             // 事件处理流水线（包含ACCEPT）
+        std::shared_ptr<DynamicBufferState> state;
+
+        bool SubmitIOEvent(IOuringOPData *opdata);
+        void GetPostIOEvent(std::vector<IOuringOPData *> &out);
+        void NotifyIOEventDone(IOuringOPData *opdata);
+        void NotifyIOEventRetry(IOuringOPData *opdata);
+    };
+
+    class SequentialIOSubmitter : public std::enable_shared_from_this<SequentialIOSubmitter>
+    {
+        enum class submitstate
+        {
+            none = -1,
+            idle = 0,
+            doing = 1
+        };
 
     public:
-        SequentialSender();
-        ~SequentialSender();
+        SequentialIOSubmitter(IOuringCoreProcess *core, std::shared_ptr<NetCore_IOuringData> &data, IOUring_OPType type);
+        ~SequentialIOSubmitter();
         void Release();
-        void Send(Buffer &buf, BaseTransportConnection *Con, int fd);
-        void Update(BaseTransportConnection *Con, uint32_t sendsize, Buffer &buf);
-        void Retry(BaseTransportConnection *Con, Buffer &buf);
+        void SubmitOPdata(IOuringOPData *opdata);
+        void NotifyRetry(IOuringOPData *opdata);
+        void NotifyDone(IOuringOPData *opdata);
+        IOUring_OPType GetSubmitType();
+        void GetPostIOEvent(std::vector<IOuringOPData *> &out);
 
     private:
-        void ProcessQueue(BaseTransportConnection *Con);
+        IOuringCoreProcess *_core;
+        std::weak_ptr<NetCore_IOuringData> _weakdata;
+        IOUring_OPType _type;
 
-    private:
         CriticalSectionLock _lock;
-        SafeQueue<Buffer *> _queue;
-        sendstate _state;
+        SafeDeQue<IOuringOPData *> _queue;
+        submitstate _state;
+    };
+
+    class SequentialEventExecutor
+    {
+        enum class excutestate;
+
+    public:
+        struct ExcuteEvent;
+
+    public:
+        SequentialEventExecutor(IOuringCoreProcess *_core, std::shared_ptr<NetCore_IOuringData> &data);
+        ~SequentialEventExecutor();
+        void Release();
+        void SubmitExcuteEvent(std::shared_ptr<ExcuteEvent> event);
+        void NotifyDone();
+        void GetPostExcuteEvent(std::vector<std::shared_ptr<ExcuteEvent>> &out);
+
+        // void SubmitReadEvent(Buffer &buf);
+        // void SubmitAcceptEvent(int clientfd, sockaddr_in addr);
+        // void SubmitRDHUPEvent();
+
+        // private:
+        //     void ProcessQueue();
+
+    private:
+        IOuringCoreProcess *_core;
+        std::weak_ptr<NetCore_IOuringData> _weakdata;
+        CriticalSectionLock _lock;
+        SafeQueue<std::shared_ptr<ExcuteEvent>> _queue;
+        excutestate _state;
     };
 
     // 动态缓冲区管理,用于动态调整连接的缓冲区以适应突发的流量
@@ -75,19 +104,50 @@ private:
         uint32_t lastbuffersize;
     };
 
-    struct NetCore_IOuringData
-    {
-        int fd;
-        BaseTransportConnection *Con;
-        std::shared_ptr<SequentialSender> sender;
-        std::shared_ptr<DynamicBufferState> state;
-    };
+public:
+    static IOuringCoreProcess *Instance();
+    int Run();
+    void Stop();
+    bool Running();
+
+public:
+    bool AddNetFd(std::shared_ptr<BaseTransportConnection> Con);
+    bool DelNetFd(BaseTransportConnection *Con);
+    bool SendRes(std::shared_ptr<BaseTransportConnection> BaseCon);
+    void AddPendingDeletion(DeleteLaterImpl *ptr);
+
+private:
+    IOuringCoreProcess();
+    void LoopSubmitIOEvent();
+    void LoopSubmitExcuteEvent();
+    void Loop();
+    bool GetDoneIOEvents(std::vector<IOuringOPData *> &opdatas);
+    int EventProcess(IOuringOPData *opdata, std::vector<IOuringOPData *> &postOps);
+    void ThreadEnd();
+    void ProcessPendingDeletions();
+
+private:
+    void DoPostIOEvents(std::vector<IOuringOPData *> opdatas);
+    void DoPostExcuteEvents(std::vector<std::shared_ptr<SequentialEventExecutor::ExcuteEvent>> &events);
+
+    bool SubmitWriteEvent(IOuringOPData *opdata);
+    bool SubmitReadEvent(IOuringOPData *opdata);
+    bool SubmitAcceptEvent(IOuringOPData *opdata);
+    bool SubmitWillWriteEvent(IOuringOPData *opdata);
 
 private:
     bool _isrunning = false;
     io_uring ring;
 
     SafeMap<BaseTransportConnection *, std::shared_ptr<NetCore_IOuringData>> _IOUringData;
-
     SafeArray<DeleteLaterImpl *> _pendingDeletions;
+    ThreadPool _ExcuteEventProcessPool;
+
+    std::mutex _IOEventLock;
+    std::condition_variable _IOEventCV;
+
+    std::mutex _ExcuteLock;
+    std::condition_variable _ExcuteCV;
+
+    CriticalSectionLock _doPostIOEventLock;
 };

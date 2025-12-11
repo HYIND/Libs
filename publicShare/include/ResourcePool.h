@@ -1,82 +1,64 @@
 #pragma once
 
-#ifdef __linux__
-#include <mutex>
-#elif _WIN32
-#include <synchapi.h>
-#endif
-
 #include <list>
 #include <vector>
+#include "CriticalSectionLock.h"
 
 template <class DataType>
 class ResPool
 {
 protected:
+	CriticalSectionLock _lock;
 	std::list<DataType *> _iDleList;
-#ifdef _WIN32
-	CRITICAL_SECTION _csLock;
-#define GETRESLOCK EnterCriticalSection(&_csLock)
-#define GETRESUNLOCK LeaveCriticalSection(&_csLock)
-#elif __linux__
-	std::mutex _mutex;
-#define GETRESLOCK std::lock_guard<std::mutex> lock(_mutex);
-#define GETRESUNLOCK
-#endif
 	std::vector<DataType *> _datas;
-	int maxResNum = 1000;
+	uint32_t _maxResNum = 1000;
 
 public:
-	ResPool(int InitResNum = 300, int maxResNum = 1000)
+	ResPool(uint32_t InitResNum = 300, uint32_t maxResNum = 1000)
 	{
-		maxResNum = std::max(InitResNum, maxResNum);
-#ifdef _WIN32
-		InitializeCriticalSection(&_csLock);
-#endif
+		std::lock_guard<CriticalSectionLock> lock(_lock);
+
+		_maxResNum = maxResNum;
+
 		_iDleList.clear();
 		_datas.clear();
 
-		GETRESLOCK;
 		for (size_t i = 0; i < InitResNum; i++)
 		{
 			DataType *data = new DataType();
 			_iDleList.push_back(data);
 			_datas.push_back(data);
 		}
-		GETRESUNLOCK;
 	}
 
 	~ResPool()
 	{
-		GETRESLOCK;
+		std::lock_guard<CriticalSectionLock> lock(_lock);
+		_datas.clear();
 		for (auto it = _iDleList.begin(); it != _iDleList.end(); it++)
 		{
 			delete (*it);
 		}
 		_iDleList.clear();
-		GETRESUNLOCK;
-#ifdef _WIN32
-		DeleteCriticalSection(&_csLock);
-#endif
 	}
 
 	// 分配空间
 	virtual DataType *AllocateData()
 	{
-		DataType *data = NULL;
+		DataType *data = nullptr;
 
-		GETRESLOCK;
+		std::lock_guard<CriticalSectionLock> lock(_lock);
 		if (_iDleList.size() > 0) // list不为空，从list中取一个
 		{
-			data = _iDleList.back();
-			_iDleList.pop_back();
+			data = _iDleList.front();
+			_iDleList.pop_front();
 		}
 		else // list为空，新建一个
 		{
 			data = new DataType();
-			_datas.push_back(data);
+			if (_datas.size() < _maxResNum)
+				_datas.push_back(data);
 		}
-		GETRESUNLOCK;
 
 		return data;
 	}
@@ -84,19 +66,35 @@ public:
 	// 回收
 	void ReleaseData(DataType *data)
 	{
-		GETRESLOCK;
-		if (_datas.size() < maxResNum)
+		std::lock_guard<CriticalSectionLock> lock(_lock);
+
+		// 已持有的数据
+		auto it = find(_datas.begin(), _datas.end(), data);
+		if (it != _datas.end())
 		{
-			ResetData(data);
-			_iDleList.push_front(data);
+			if (std::find(_iDleList.begin(), _iDleList.end(), data) == _iDleList.end())
+			{
+				ResetData(data);
+				_iDleList.push_back(data);
+			}
+			else
+			{
+				std::cerr << "ResPool::ReleaseData double free!!!\n";
+			}
 		}
-		else
+		else // 外部数据，非池子持有的
 		{
-			auto it = find(_datas.begin(), _datas.end(), data);
-			_datas.erase(it);
-			SAFE_DELETE(data);
+			if (_datas.size() < _maxResNum)
+			{
+				ResetData(data);
+				_datas.push_back(data);
+				_iDleList.push_back(data);
+			}
+			else
+			{
+				SAFE_DELETE(data);
+			}
 		}
-		GETRESUNLOCK;
 	}
 
 	virtual void ResetData(DataType *data) {}

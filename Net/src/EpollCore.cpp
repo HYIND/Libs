@@ -48,6 +48,7 @@ EpollCoreProcess *EpollCoreProcess::Instance()
 	static EpollCoreProcess *m_Instance = new EpollCoreProcess();
 	return m_Instance;
 }
+
 int EpollCoreProcess::Run()
 {
 	try
@@ -66,12 +67,18 @@ int EpollCoreProcess::Run()
 		return -1;
 	}
 }
+
+void EpollCoreProcess::Stop()
+{
+	_isrunning = false;
+}
+
 bool EpollCoreProcess::Running()
 {
 	return _isrunning;
 }
 
-bool EpollCoreProcess::AddNetFd(BaseTransportConnection *Con)
+bool EpollCoreProcess::AddNetFd(std::shared_ptr<BaseTransportConnection> Con)
 {
 	// cout << "AddNetFd fd :" << Con->GetFd() << endl;
 	if (Con->GetFd() <= 0)
@@ -81,7 +88,7 @@ bool EpollCoreProcess::AddNetFd(BaseTransportConnection *Con)
 	std::shared_ptr<NetCore_EpollData> data = std::make_shared<NetCore_EpollData>();
 	data->fd = Con->GetFd();
 	data->Con = Con;
-	_EpollData.Insert(Con, data);
+	_EpollData.Insert(Con.get(), data);
 
 	EpollDataWeakWrapper *weak = nullptr;
 	if (_WeakData.FindByLeft(Con->GetFd(), weak))
@@ -155,13 +162,17 @@ int EpollCoreProcess::EventProcess(std::shared_ptr<NetCore_EpollData> &data, uin
 		return -1;
 
 	int fd = data->fd;
-	BaseTransportConnection *Con = data->Con;
+	auto Con = data->Con.lock();
+	if (!Con)
+	{
+		return;
+	}
 	if (fd <= 0 || !Con->ValidSocket())
 		return -1;
 
 	if (events & EPOLLRDHUP)
 	{
-		DelNetFd(Con);
+		DelNetFd(Con.get());
 		Con->OnRDHUP();
 		return 0;
 	}
@@ -181,7 +192,7 @@ int EpollCoreProcess::EventProcess(std::shared_ptr<NetCore_EpollData> &data, uin
 		else if (events & EPOLLOUT)
 		{
 			if (Con->GetNetType() == NetType::Client)
-				SendRes((TCPTransportConnection *)Con);
+				SendRes(Con);
 		}
 		else
 		{
@@ -214,15 +225,22 @@ void EpollCoreProcess::ProcessPendingDeletions()
 	}
 }
 
-bool EpollCoreProcess::SendRes(TCPTransportConnection *Con)
+bool EpollCoreProcess::SendRes(std::shared_ptr<BaseTransportConnection> BaseCon)
 {
-	if (!Con->GetSendMtx().try_lock())
+	if (!BaseCon || !(BaseCon->GetNetType() == NetType::Client))
+		return false;
+
+	std::shared_ptr<TCPTransportConnection> Con = BaseCon->GetShared<TCPTransportConnection>();
+	if (!Con)
+		return false;
+
+	if (!Con->GetSendMtx().TryEnter())
 		return true; // 写锁正在被其他线程占用
 	int fd = Con->GetFd();
 	SafeQueue<Buffer *> &SendDatas = Con->GetSendData();
 
 	std::shared_ptr<NetCore_EpollData> data;
-	if (!_EpollData.Find(Con, data))
+	if (!_EpollData.Find(Con.get(), data))
 	{
 		if (!AddNetFd(Con))
 			return false;
@@ -289,7 +307,7 @@ bool EpollCoreProcess::SendRes(TCPTransportConnection *Con)
 			{
 				printf("write error for %d: %d %s\n", fd, errno, strerror(errno));
 				close(fd);
-				this->DelNetFd(Con);
+				this->DelNetFd(Con.get());
 				Con->OnRDHUP();
 				Con->GetSendMtx().unlock();
 				return false;

@@ -24,7 +24,7 @@ bool BaseNetWorkSession::Connect(const std::string &IP, uint16_t Port)
     // 尝试握手，超时时间10秒
     if (!TryHandshake(10 * 1000))
     {
-        std::cout << "CustomTcpSession::TryHandshake Connect Fail! CloseConnection\n";
+        std::cout << "BaseNetWorkSession::Connect TryHandshake Connect Fail! CloseConnection\n";
         Release();
         return false;
     }

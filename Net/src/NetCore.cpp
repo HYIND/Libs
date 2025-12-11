@@ -2,8 +2,6 @@
 
 using namespace std;
 
-#if defined(__linux__)
-
 void InitNetCore()
 {
 }
@@ -16,6 +14,14 @@ bool NetCoreRunning()
 void DeleteLater(DeleteLaterImpl *ptr)
 {
 	NetCore->AddPendingDeletion(ptr);
+}
+
+void StopNetCoreLoop()
+{
+	if (NetCoreRunning())
+	{
+		NetCore->Stop();
+	}
 }
 
 #if defined(IO_URING_ON)
@@ -44,7 +50,4 @@ void RunNetCoreLoop(bool isBlock)
 			CoreThread.detach();
 	}
 }
-
-#endif
-#elif define(_WIN32)
 #endif

@@ -1,7 +1,5 @@
 #include "Helper/Buffer.h"
 
-using namespace std;
-
 Buffer::Buffer()
 {
     _buf = nullptr;
@@ -14,14 +12,14 @@ Buffer::Buffer(const Buffer &other)
     CopyFromBuf(other);
 }
 
-Buffer::Buffer(const int length)
+Buffer::Buffer(const uint64_t length)
 {
-    _buf = new char[length];
+    _buf = new char[length + 1];
     memset(_buf, '\0', length);
     _length = length;
 }
 
-Buffer::Buffer(const char *buf, int length)
+Buffer::Buffer(const char *buf, uint64_t length)
 {
     CopyFromBuf(buf, length);
 }
@@ -51,43 +49,43 @@ char *Buffer::Byte() const
 {
     return (char *)_buf;
 }
-int Buffer::Length() const
+uint64_t Buffer::Length() const
 {
     return _length;
 }
 
-int Buffer::Postion() const
+uint64_t Buffer::Postion() const
 {
     return _pos;
 }
 
-int Buffer::Remaind() const
+uint64_t Buffer::Remaind() const
 {
-    return std::max(0, _length - _pos);
+    return std::max((uint64_t)0, _length - _pos);
 }
 void Buffer::CopyFromBuf(const Buffer &other)
 {
     SAFE_DELETE_ARRAY(_buf);
 
-    _buf = new char[other._length];
+    _buf = new char[other._length + 1];
     memcpy(_buf, other._buf, other._length);
     _length = other._length;
     _pos = 0;
 }
 
-void Buffer::CopyFromBuf(const char *buf, int length)
+void Buffer::CopyFromBuf(const char *buf, uint64_t length)
 {
     SAFE_DELETE_ARRAY(_buf);
 
-    length = std::max(0, length);
+    length = std::max((uint64_t)0, length);
 
-    _buf = new char[length];
+    _buf = new char[length + 1];
     memcpy(_buf, buf, length);
     _length = length;
     _pos = 0;
 }
 
-void Buffer::QuoteFromBuf(char *buf, int length)
+void Buffer::QuoteFromBuf(char *buf, uint64_t length)
 {
     SAFE_DELETE_ARRAY(_buf);
 
@@ -108,23 +106,23 @@ void Buffer::QuoteFromBuf(Buffer &other)
     other._pos = 0;
 }
 
-int Buffer::Write(const Buffer &other)
+uint64_t Buffer::Write(const Buffer &other)
 {
     return Write(other.Data(), other.Length());
 }
 
-int Buffer::Write(const string &str)
+uint64_t Buffer::Write(const std::string &str)
 {
     return Write(str.c_str(), str.length());
 }
 
-int Buffer::Write(const void *buf, const int length)
+uint64_t Buffer::Write(const void *buf, const uint64_t length)
 {
     if (length <= 0)
         return 0;
     if (_pos + length > this->_length)
     {
-        char *newBuf = new char[_pos + length];
+        char *newBuf = new char[_pos + length + 1];
         memcpy(newBuf, _buf, this->_length);
         SAFE_DELETE_ARRAY(this->_buf);
         this->_buf = newBuf;
@@ -135,19 +133,21 @@ int Buffer::Write(const void *buf, const int length)
     return length;
 }
 
-int Buffer::Append(Buffer &other)
+uint64_t Buffer::Append(Buffer &other)
 {
     return Append(other, other.Length() - other.Postion());
 }
 
-int Buffer::Append(Buffer &other, int length)
+uint64_t Buffer::Append(Buffer &other, uint64_t length)
 {
-    int truthAppend = std::min(other.Length() - other.Postion(), length);
+    uint64_t truthAppend = std::min(other.Length() - other.Postion(), length);
     if (truthAppend <= 0)
         return 0;
 
-    char *newBuf = new char[_length + truthAppend];
-    memcpy(newBuf, _buf, _length);
+    char *newBuf = new char[_length + truthAppend + 1];
+
+    if (_buf)
+        memcpy(newBuf, _buf, _length);
     memcpy(newBuf + _length, other.Byte() + other.Postion(), truthAppend);
 
     SAFE_DELETE_ARRAY(_buf);
@@ -158,14 +158,14 @@ int Buffer::Append(Buffer &other, int length)
     return truthAppend;
 }
 
-int Buffer::WriteFromOtherBufferPos(Buffer &other)
+uint64_t Buffer::WriteFromOtherBufferPos(Buffer &other)
 {
     return WriteFromOtherBufferPos(other, other.Length() - other.Postion());
 }
 
-int Buffer::WriteFromOtherBufferPos(Buffer &other, int length)
+uint64_t Buffer::WriteFromOtherBufferPos(Buffer &other, uint64_t length)
 {
-    int truthRead = std::min(other.Length() - other.Postion(), length);
+    uint64_t truthRead = std::min(other.Length() - other.Postion(), length);
     if (truthRead <= 0)
         return 0;
     Write((char *)other.Data() + other.Postion(), truthRead);
@@ -173,64 +173,73 @@ int Buffer::WriteFromOtherBufferPos(Buffer &other, int length)
     return truthRead;
 }
 
-int Buffer::Read(void *buf, const int length)
+uint64_t Buffer::Read(void *buf, const uint64_t length)
 {
     if (length <= 0)
         return 0;
-    int truthRead = min(length, this->_length - _pos);
+    uint64_t truthRead = std::min(length, this->_length - _pos);
     if (truthRead > 0)
         memcpy(buf, _buf + _pos, truthRead);
     _pos += truthRead;
     return truthRead;
 }
-int Buffer::Seek(const int index)
+uint64_t Buffer::Seek(const uint64_t index)
 {
     if (index < 0)
         _pos = 0;
-    _pos = min(index, _length);
+    _pos = std::min(index, _length);
     return _pos;
 }
 
-void Buffer::ReSize(const int length)
+void Buffer::ReSize(const uint64_t length)
 {
-    // int minSize = min(length, 0);
+    uint64_t truthlength = std::max(length, (uint64_t)0);
     if (length == _length)
         return;
 
     char *oribuf = _buf;
-    int oriLength = _length;
+    uint64_t oriLength = _length;
 
-    _buf = new char[length];
+    _buf = new char[length + 1];
     if (oribuf)
-        memcpy(_buf, oribuf, min(oriLength, length));
+        memcpy(_buf, oribuf, std::min(oriLength, length));
     _length = length;
     _pos = 0;
 
     SAFE_DELETE_ARRAY(oribuf);
 }
 
-void Buffer::Shift(const int length)
+void Buffer::Shift(const uint64_t length)
 {
-    int truthShift = std::min(_length, length);
+    uint64_t truthShift = std::min(_length, length);
     if (truthShift <= 0)
         return;
 
-    memcpy(Byte(), Byte() + truthShift, _length - truthShift);
+    char *oribuf = _buf;
+    uint64_t oriLength = _length;
 
-    ReSize(_length - truthShift);
+    uint64_t newlength = oriLength - truthShift;
+    _buf = new char[newlength + 1];
+    if (oribuf)
+        memcpy(_buf, oribuf + truthShift, newlength);
+
+    _length = newlength;
+    _pos = 0;
+
+    SAFE_DELETE_ARRAY(oribuf);
 }
 
-void Buffer::Unshift(const void *buf, const int length)
+void Buffer::Unshift(const void *buf, const uint64_t length)
 {
     if (length <= 0)
         return;
 
     char *oribuf = _buf;
 
-    int oriLength = _length;
-    int newLength = length + oriLength;
+    uint64_t oriLength = _length;
+    uint64_t newLength = length + oriLength;
 
-    _buf = new char[newLength];
+    _buf = new char[newLength + 1];
     memcpy(_buf, buf, length);
     if (oribuf)
         memcpy(_buf + length, oribuf, oriLength);

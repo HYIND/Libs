@@ -497,7 +497,7 @@ void AppendSignalDataFrameBufferFromPos(
     // set mask flag
     onebyte = onebyte | (mask << 7);
 
-    uint64_t payload_length = std::min(input.Remaind(), WS_MAX_DATAFRAME_PAYLOAD_SIZE);
+    uint64_t payload_length = std::min(input.Remaind(), (uint64_t)WS_MAX_DATAFRAME_PAYLOAD_SIZE);
     uint8_t length_type = Generate_length_type(payload_length);
     if (length_type < 126)
     {

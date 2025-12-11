@@ -6,7 +6,6 @@
 
 #pragma once
 
-#ifdef __linux__
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -19,13 +18,6 @@
 #include <sys/ioctl.h>
 #include "fmt/core.h"
 #include <atomic>
-#elif _WIN32
-#include <WinSock2.h>
-#include <WS2tcpip.h>
-#include <mswsock.h>
-#pragma comment(lib, "Ws2_32.lib")
-#endif
-
 #include <string.h>
 #include <signal.h>
 #include <thread>
@@ -53,9 +45,6 @@
 #include "Helper/Buffer.h"
 #include "SafeStl.h"
 
-// namespace Net
-// {
-
 enum NetType
 {
 	Listener = 1,
@@ -68,16 +57,27 @@ enum SocketType
 	UDP = 2
 };
 
-class BaseTransportConnection
+class BaseTransportConnection : public std::enable_shared_from_this<BaseTransportConnection>
 {
+
+public:
+	template <typename T>
+	std::shared_ptr<T> GetShared()
+	{
+		if (auto ptr = dynamic_cast<T *>(this))
+		{
+			return std::shared_ptr<T>(
+				shared_from_this(),
+				ptr);
+		}
+		return nullptr;
+	}
+	std::shared_ptr<BaseTransportConnection> GetBaseShared();
+
 public:
 	BaseTransportConnection(SocketType type = SocketType::TCP, bool isclient = false);
 
-#ifdef __linux__
 	EXPORT_FUNC int GetFd();
-#elif _WIN32
-	EXPORT_FUNC SOCKET GetSocket();
-#endif
 	EXPORT_FUNC SocketType GetType();
 	EXPORT_FUNC sockaddr_in GetAddr();
 	EXPORT_FUNC char *GetIPAddr();
@@ -86,26 +86,15 @@ public:
 	EXPORT_FUNC bool ValidSocket();
 
 public:
-#ifdef __linux__
 	EXPORT_FUNC virtual void OnRDHUP() = 0;											// 对端关闭事件，即断开连接
 	EXPORT_FUNC virtual void OnREAD(int fd) = 0;									// 可读事件
 	EXPORT_FUNC virtual void OnREAD(int fd, Buffer &buf) = 0;						// 可读事件
 	EXPORT_FUNC virtual void OnACCEPT(int fd) = 0;									// 接受新连接事件
 	EXPORT_FUNC virtual void OnACCEPT(int fd, int newclient, sockaddr_in addr) = 0; // 接受新连接事件
 
-#elif _WIN32
-	EXPORT_FUNC virtual void OnRDHUP() {};									// 对端关闭事件，即断开连接
-	EXPORT_FUNC virtual void OnREAD(SOCKET socket, Buffer &buffer) {};		// 可读事件
-	EXPORT_FUNC virtual void OnACCEPT(SOCKET socket, sockaddr_in *addr) {}; // 可读事件
-#endif
-
 protected:
 	sockaddr_in _addr;
-#ifdef __linux__
 	int _fd = -1;
-#elif _WIN32
-	SOCKET _socket = INVALID_SOCKET;
-#endif
 	SocketType _type = SocketType::TCP;
 	bool _isclient;
 };
@@ -118,11 +107,7 @@ public:
 	EXPORT_FUNC TCPTransportConnection();
 	EXPORT_FUNC ~TCPTransportConnection();
 	EXPORT_FUNC bool Connect(const std::string &IP, uint16_t Port);
-#ifdef __linux__
 	EXPORT_FUNC void Apply(const int fd, const sockaddr_in &sockaddr, const SocketType type);
-#elif _WIN32
-	EXPORT_FUNC void Apply(const SOCKET socket, const sockaddr_in &sockaddr, const SocketType type);
-#endif
 	EXPORT_FUNC bool Release();
 	EXPORT_FUNC bool Send(const Buffer &buffer);
 	EXPORT_FUNC int Read(Buffer &buffer, int length);
@@ -132,20 +117,14 @@ public:
 
 	EXPORT_FUNC SafeQueue<Buffer *> &GetRecvData();
 	EXPORT_FUNC SafeQueue<Buffer *> &GetSendData();
-	EXPORT_FUNC std::mutex &GetSendMtx();
+	EXPORT_FUNC CriticalSectionLock &GetSendMtx();
 
 public:
-#ifdef __linux__
 	EXPORT_FUNC virtual void OnRDHUP();
-	EXPORT_FUNC virtual void OnREAD(int fd);									 // 可读事件
-	EXPORT_FUNC virtual void OnREAD(int fd, Buffer &buf);						 // 可读事件
-	EXPORT_FUNC virtual void OnACCEPT(int fd);									 // 接受新连接事件
+	EXPORT_FUNC virtual void OnREAD(int fd);									// 可读事件
+	EXPORT_FUNC virtual void OnREAD(int fd, Buffer &buf);						// 可读事件
+	EXPORT_FUNC virtual void OnACCEPT(int fd);									// 接受新连接事件
 	EXPORT_FUNC virtual void OnACCEPT(int fd, int newclient, sockaddr_in addr); // 接受新连接事件
-
-#elif _WIN32
-	EXPORT_FUNC virtual void OnRDHUP();
-	EXPORT_FUNC virtual void OnREAD(SOCKET socket, Buffer &buffer);
-#endif
 
 private:
 	void ProcessRecvQueue();
@@ -157,7 +136,7 @@ private:
 private:
 	std::function<void(TCPTransportConnection *, Buffer *)> _callbackBuffer;
 	std::function<void(TCPTransportConnection *)> _callbackRDHUP;
-	std::mutex _SendResMtx;
+	CriticalSectionLock _SendResMtx;
 };
 
 // TCP传输层监听器
@@ -170,26 +149,15 @@ public:
 	EXPORT_FUNC bool Listen(const std::string &IP, int Port);
 	EXPORT_FUNC bool ReleaseListener();
 	EXPORT_FUNC bool ReleaseClients();
-	EXPORT_FUNC void BindAcceptCallBack(std::function<void(TCPTransportConnection *)> callback);
+	EXPORT_FUNC void BindAcceptCallBack(std::function<void(std::shared_ptr<TCPTransportConnection>)> callback);
 
 public:
-#ifdef __linux__
 	EXPORT_FUNC virtual void OnRDHUP();
 	EXPORT_FUNC virtual void OnREAD(int fd);									// 可读事件
 	EXPORT_FUNC virtual void OnREAD(int fd, Buffer &buf);						// 可读事件
 	EXPORT_FUNC virtual void OnACCEPT(int fd);									// 接受新连接事件
 	EXPORT_FUNC virtual void OnACCEPT(int fd, int newclient, sockaddr_in addr); // 接受新连接事件
 
-#elif _WIN32
-	virtual void OnRDHUP();
-	virtual void OnACCEPT(SOCKET socket, sockaddr_in *addr);
-#endif
-
 private:
-	std::map<int, TCPTransportConnection *> clients;
-
-private:
-	std::function<void(TCPTransportConnection *)> _callbackAccept;
+	std::function<void(std::shared_ptr<TCPTransportConnection>)> _callbackAccept;
 };
-
-// }

@@ -6,7 +6,7 @@
 class SpinLock
 {
 public:
-    SpinLock() = default;
+    SpinLock();
     SpinLock(const SpinLock &) = delete;
     SpinLock &operator=(const SpinLock) = delete;
     bool trylock();
