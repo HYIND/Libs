@@ -2,6 +2,7 @@
 
 #include "Helper/strHelper.h"
 #include "Helper/Buffer.h"
+#include <vector>
 #include <map>
 
 #define WS_ERROR_INVALID_HANDSHAKE_PARAMS 10070

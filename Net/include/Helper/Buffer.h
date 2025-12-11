@@ -1,41 +1,7 @@
 #pragma once
 
-#ifdef __linux__
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netinet/tcp.h>
-#include <unistd.h>
-#include <sys/epoll.h>
-#include <sys/time.h>
-#include <sys/timerfd.h>
-#include <net/if.h>
-#include <sys/ioctl.h>
-#include "fmt/core.h"
-#endif
-
 #include <string.h>
-#include <signal.h>
-#include <thread>
-#include <vector>
-#include <algorithm>
-#include <fcntl.h>
-#include <signal.h>
 #include <iostream>
-#include <assert.h>
-#include <unordered_map>
-#include <queue>
-#include <mutex>
-#include <condition_variable>
-#include <stdio.h>
-#include <stdlib.h>
-#include <type_traits>
-#include <algorithm>
-#include <iomanip>
-#include <chrono>
-#include <functional>
-#include <random>
-#include <shared_mutex>
 
 #ifdef _WIN32
 #define EXPORT_FUNC __declspec(dllexport)
