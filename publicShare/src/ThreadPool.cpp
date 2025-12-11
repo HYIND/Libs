@@ -1,7 +1,7 @@
 #include "ThreadPool.h"
 
 ThreadPool::ThreadPool(uint32_t threads_num)
-    : _stop(false)
+    : _stop(true)
 {
     if (threads_num <= 0)
         threads_num = std::thread::hardware_concurrency();
@@ -10,6 +10,10 @@ ThreadPool::ThreadPool(uint32_t threads_num)
 }
 void ThreadPool::start()
 {
+    if (!_stop)
+        return;
+
+    _stop = false;
     for (int i = 0; i < _threadscount; ++i)
     {
         _threads.emplace_back(std::thread(ThreadWorker(this, i))); // 分配工作线程
@@ -18,7 +22,7 @@ void ThreadPool::start()
 void ThreadPool::stop()
 {
     {
-        std::unique_lock<std::mutex> lock(_mutex);
+        std::lock_guard<std::mutex> lock(_mutex);
         _stop = true;
     }
 
@@ -30,6 +34,7 @@ void ThreadPool::stop()
             _threads.at(i).join(); // 将线程加入到等待队列
         }
     }
+    _queue.clear();
 }
 
 void ThreadPool::ThreadWorker::operator()()

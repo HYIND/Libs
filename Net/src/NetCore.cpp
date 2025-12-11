@@ -35,7 +35,10 @@ void RunNetCoreLoop(bool isBlock)
 		if (isBlock)
 			CoreThread.join();
 		else
+		{
+			this_thread::sleep_for(std::chrono::milliseconds(500));
 			CoreThread.detach();
+		}
 	}
 }
 #else
@@ -47,7 +50,10 @@ void RunNetCoreLoop(bool isBlock)
 		if (isBlock)
 			CoreThread.join();
 		else
+		{
+			this_thread::sleep_for(std::chrono::milliseconds(500));
 			CoreThread.detach();
+		}
 	}
 }
 #endif

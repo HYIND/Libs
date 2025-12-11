@@ -1,6 +1,10 @@
+#include <sys/eventfd.h>
+#include <set>
 #include "Core/EpollCore.h"
 #include "Core/NetCoredef.h"
-#include <set>
+#include "BiDirectionalMap.h"
+
+static int shutdown_eventfd = -1;
 
 using namespace std;
 
@@ -34,27 +38,95 @@ void updateEvents(int epollfd, int fd, void *ptr, uint32_t events, int op)
 	// exit_if(r, "epoll_ctl failed");
 }
 
-EpollCoreProcess::EpollDataWeakWrapper::EpollDataWeakWrapper(int fd, std::shared_ptr<EpollCoreProcess::NetCore_EpollData> &data)
+struct NetCore_EpollData
+{
+	int fd;
+	std::weak_ptr<BaseTransportConnection> Con;
+};
+
+// weak包装，防止epoll处理期间EpollData过期
+struct EpollDataWeakWrapper
+{
+	int fd;
+	std::weak_ptr<NetCore_EpollData> weakData;
+
+	EpollDataWeakWrapper(int fd, const std::shared_ptr<NetCore_EpollData> &data);
+};
+
+class EpollCoreProcessImpl
+{
+public:
+	EpollCoreProcessImpl();
+	int Run();
+	void Stop();
+	bool Running();
+
+public:
+	bool AddNetFd(std::shared_ptr<BaseTransportConnection> Con);
+	bool DelNetFd(BaseTransportConnection *Con);
+	bool SendRes(std::shared_ptr<BaseTransportConnection> BaseCon);
+	void AddPendingDeletion(DeleteLaterImpl *ptr);
+
+private:
+	void Loop();
+	int EventProcess(std::shared_ptr<NetCore_EpollData> &data, uint32_t events);
+	void ThreadEnd();
+	void ProcessPendingDeletions();
+
+private:
+	bool _isrunning;
+	int _epoll = epoll_create(1000);
+	epoll_event _events[1500];
+	SafeMap<BaseTransportConnection *, std::shared_ptr<NetCore_EpollData>> _EpollData;
+	BiDirectionalMap<int, EpollDataWeakWrapper *> _WeakData;
+	SafeArray<DeleteLaterImpl *> _pendingDeletions;
+};
+
+EpollDataWeakWrapper::EpollDataWeakWrapper(int fd, const std::shared_ptr<NetCore_EpollData> &data)
 	: fd(fd), weakData(data)
 {
 }
 
-EpollCoreProcess::EpollCoreProcess()
+EpollCoreProcessImpl::EpollCoreProcessImpl()
+	: _isrunning(false), _epoll(-1)
 {
+	if (shutdown_eventfd < 0)
+	{
+		shutdown_eventfd = eventfd(0, EFD_NONBLOCK);
+		if (shutdown_eventfd < 0)
+		{
+			perror("shutdown_eventfd init error!");
+		}
+	}
+	_epoll = epoll_create(1000);
+	if (_epoll < 0)
+	{
+		perror("epollfd init error!");
+	}
+	if (shutdown_eventfd > 0 && _epoll > 0)
+	{
+		EpollDataWeakWrapper *wrapper = new EpollDataWeakWrapper(shutdown_eventfd, std::shared_ptr<NetCore_EpollData>(nullptr));
+		addfd(_epoll, shutdown_eventfd, wrapper, true);
+	}
 }
 
-EpollCoreProcess *EpollCoreProcess::Instance()
-{
-	static EpollCoreProcess *m_Instance = new EpollCoreProcess();
-	return m_Instance;
-}
-
-int EpollCoreProcess::Run()
+int EpollCoreProcessImpl::Run()
 {
 	try
 	{
+		if (_epoll < 0)
+		{
+			std::cerr << "invalid epollfd!\n";
+			return -1;
+		}
+		if (shutdown_eventfd > 0 && _epoll > 0)
+		{
+			uint64_t value = 0;
+			ssize_t n = read(shutdown_eventfd, &value, sizeof(value));
+		}
+
 		_isrunning = true;
-		thread EventLoop(&EpollCoreProcess::Loop, this);
+		thread EventLoop(&EpollCoreProcessImpl::Loop, this);
 		EventLoop.join();
 		_isrunning = false;
 
@@ -68,17 +140,20 @@ int EpollCoreProcess::Run()
 	}
 }
 
-void EpollCoreProcess::Stop()
+void EpollCoreProcessImpl::Stop()
 {
-	_isrunning = false;
+	if (shutdown_eventfd < 0)
+		return;
+	uint64_t num = 1;
+	write(shutdown_eventfd, &num, sizeof(uint64_t));
 }
 
-bool EpollCoreProcess::Running()
+bool EpollCoreProcessImpl::Running()
 {
 	return _isrunning;
 }
 
-bool EpollCoreProcess::AddNetFd(std::shared_ptr<BaseTransportConnection> Con)
+bool EpollCoreProcessImpl::AddNetFd(std::shared_ptr<BaseTransportConnection> Con)
 {
 	// cout << "AddNetFd fd :" << Con->GetFd() << endl;
 	if (Con->GetFd() <= 0)
@@ -102,7 +177,7 @@ bool EpollCoreProcess::AddNetFd(std::shared_ptr<BaseTransportConnection> Con)
 
 	return true;
 }
-bool EpollCoreProcess::DelNetFd(BaseTransportConnection *Con)
+bool EpollCoreProcessImpl::DelNetFd(BaseTransportConnection *Con)
 {
 	delfd(_epoll, Con->GetFd());
 	_EpollData.Erase(Con);
@@ -110,13 +185,19 @@ bool EpollCoreProcess::DelNetFd(BaseTransportConnection *Con)
 	return true;
 }
 
-void EpollCoreProcess::Loop()
+void EpollCoreProcessImpl::Loop()
 {
 	cout << "EpollCore , EventLoop\n";
 
+	bool shouldshutdown = false;
 	while (_isrunning)
 	{
-		int number = epoll_wait(_epoll, _events, 800, 100);
+		if (shouldshutdown)
+			break;
+
+		static int maxevents = 1000;
+		epoll_event _events[maxevents];
+		int number = epoll_wait(_epoll, _events, maxevents, 100);
 		if (number < 0 && (errno != EINTR))
 		{
 			cout << "_epoll failure\n";
@@ -131,6 +212,15 @@ void EpollCoreProcess::Loop()
 				auto *wrapper = static_cast<EpollDataWeakWrapper *>(event.data.ptr);
 				if (wrapper)
 				{
+					if (shutdown_eventfd > 0 && wrapper->fd == shutdown_eventfd)
+					{
+						uint64_t num;
+						read(shutdown_eventfd, &num, sizeof(uint64_t));
+						shouldshutdown = true;
+						std::cout << "EpollCore , EventLoop closing......\n";
+						continue;
+					}
+
 					int weakfd = -1;
 					if (_WeakData.FindByRight(wrapper, weakfd))
 					{
@@ -152,11 +242,9 @@ void EpollCoreProcess::Loop()
 		}
 		ProcessPendingDeletions();
 	}
-	// close(timefd);
-	close(_epoll);
 }
 
-int EpollCoreProcess::EventProcess(std::shared_ptr<NetCore_EpollData> &data, uint32_t events)
+int EpollCoreProcessImpl::EventProcess(std::shared_ptr<NetCore_EpollData> &data, uint32_t events)
 {
 	if (!data)
 		return -1;
@@ -165,7 +253,7 @@ int EpollCoreProcess::EventProcess(std::shared_ptr<NetCore_EpollData> &data, uin
 	auto Con = data->Con.lock();
 	if (!Con)
 	{
-		return;
+		return -1;
 	}
 	if (fd <= 0 || !Con->ValidSocket())
 		return -1;
@@ -204,12 +292,12 @@ int EpollCoreProcess::EventProcess(std::shared_ptr<NetCore_EpollData> &data, uin
 	return 1;
 }
 
-void EpollCoreProcess::AddPendingDeletion(DeleteLaterImpl *ptr)
+void EpollCoreProcessImpl::AddPendingDeletion(DeleteLaterImpl *ptr)
 {
 	_pendingDeletions.emplace(ptr);
 }
 
-void EpollCoreProcess::ProcessPendingDeletions()
+void EpollCoreProcessImpl::ProcessPendingDeletions()
 {
 	std::vector<DeleteLaterImpl *> deletions;
 	_pendingDeletions.EnsureCall(
@@ -225,7 +313,7 @@ void EpollCoreProcess::ProcessPendingDeletions()
 	}
 }
 
-bool EpollCoreProcess::SendRes(std::shared_ptr<BaseTransportConnection> BaseCon)
+bool EpollCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> BaseCon)
 {
 	if (!BaseCon || !(BaseCon->GetNetType() == NetType::Client))
 		return false;
@@ -327,3 +415,20 @@ bool EpollCoreProcess::SendRes(std::shared_ptr<BaseTransportConnection> BaseCon)
 	Con->GetSendMtx().unlock();
 	return true;
 }
+
+EpollCoreProcess *EpollCoreProcess::Instance()
+{
+	static EpollCoreProcess *m_instance = new EpollCoreProcess();
+	return m_instance;
+}
+EpollCoreProcess::EpollCoreProcess()
+{
+	pImpl = std::make_unique<EpollCoreProcessImpl>();
+}
+int EpollCoreProcess::Run() { return pImpl->Run(); }
+void EpollCoreProcess::Stop() { pImpl->Stop(); };
+bool EpollCoreProcess::Running() { return pImpl->Running(); };
+bool EpollCoreProcess::AddNetFd(std::shared_ptr<BaseTransportConnection> Con) { return pImpl->AddNetFd(Con); };
+bool EpollCoreProcess::DelNetFd(BaseTransportConnection *Con) { return pImpl->DelNetFd(Con); };
+bool EpollCoreProcess::SendRes(std::shared_ptr<BaseTransportConnection> BaseCon) { return pImpl->SendRes(BaseCon); };
+void EpollCoreProcess::AddPendingDeletion(DeleteLaterImpl *ptr) { pImpl->AddPendingDeletion(ptr); };

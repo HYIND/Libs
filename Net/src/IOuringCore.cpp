@@ -1,5 +1,9 @@
-#include "Core/IOuringCore.h"
+#include <sys/eventfd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <liburing.h>
 #include "Core/NetCoredef.h"
+#include "Core/IOuringCore.h"
 #include "ResourcePool.h"
 #include "ThreadPool.h"
 
@@ -12,24 +16,15 @@
 #define SENDBUFFERCONCATMAXLEN 1024 * 1024
 #define RECVBUFFERCONCATMAXLEN 1024 * 1024
 
-int64_t GetTimestampMilliseconds()
-{
-    auto now = std::chrono::system_clock::now();
-    auto duration = now.time_since_epoch();
-    return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-}
-
-static void setnonblocking(int fd)
-{
-    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
-}
+static int shutdown_eventfd = -1;
 
 enum class IOUring_OPType
 {
     OP_READ = 1,
     OP_WRITE = 2,
     OP_ACCEPT = 3,
-    OP_WILLWRITE
+    OP_WILLWRITE = 4,
+    OP_SHUTDOWN
 };
 struct IOuringOPData
 {
@@ -79,13 +74,168 @@ struct IOuringOPData
     static IOuringOPData *CreateWillWriteOP(std::shared_ptr<BaseTransportConnection> Con);
 };
 
-enum class IOuringCoreProcess::SequentialEventExecutor::excutestate
+class IOuringCoreProcessImpl
+{
+
+    class SequentialIOSubmitter;
+    class SequentialEventExecutor;
+    class DynamicBufferState;
+
+private:
+    struct NetCore_IOuringData
+    {
+        int fd;
+        std::weak_ptr<BaseTransportConnection> weakCon;
+        std::vector<std::shared_ptr<SequentialIOSubmitter>> senders; // IO流水线
+        std::shared_ptr<SequentialEventExecutor> recver;             // 事件处理流水线（包含ACCEPT）
+        std::shared_ptr<DynamicBufferState> state;
+
+        bool SubmitIOEvent(IOuringOPData *opdata);
+        void GetPostIOEvent(std::vector<IOuringOPData *> &out);
+        void NotifyIOEventDone(IOuringOPData *opdata);
+        void NotifyIOEventRetry(IOuringOPData *opdata);
+    };
+
+    class SequentialIOSubmitter : public std::enable_shared_from_this<SequentialIOSubmitter>
+    {
+        enum class submitstate
+        {
+            none = -1,
+            idle = 0,
+            doing = 1
+        };
+
+    public:
+        SequentialIOSubmitter(IOuringCoreProcessImpl *core, std::shared_ptr<NetCore_IOuringData> &data, IOUring_OPType type);
+        ~SequentialIOSubmitter();
+        void Release();
+        void SubmitOPdata(IOuringOPData *opdata);
+        void NotifyRetry(IOuringOPData *opdata);
+        void NotifyDone(IOuringOPData *opdata);
+        IOUring_OPType GetSubmitType();
+        void GetPostIOEvent(std::vector<IOuringOPData *> &out);
+
+    private:
+        IOuringCoreProcessImpl *_core;
+        std::weak_ptr<NetCore_IOuringData> _weakdata;
+        IOUring_OPType _type;
+
+        CriticalSectionLock _lock;
+        SafeDeQue<IOuringOPData *> _queue;
+        submitstate _state;
+    };
+
+    class SequentialEventExecutor
+    {
+        enum class excutestate;
+
+    public:
+        struct ExcuteEvent;
+
+    public:
+        SequentialEventExecutor(IOuringCoreProcessImpl *_core, std::shared_ptr<NetCore_IOuringData> &data);
+        ~SequentialEventExecutor();
+        void Release();
+        void SubmitExcuteEvent(std::shared_ptr<ExcuteEvent> event);
+        void NotifyDone();
+        void GetPostExcuteEvent(std::vector<std::shared_ptr<ExcuteEvent>> &out);
+
+        // void SubmitReadEvent(Buffer &buf);
+        // void SubmitAcceptEvent(int clientfd, sockaddr_in addr);
+        // void SubmitRDHUPEvent();
+
+        // private:
+        //     void ProcessQueue();
+
+    private:
+        IOuringCoreProcessImpl *_core;
+        std::weak_ptr<NetCore_IOuringData> _weakdata;
+        CriticalSectionLock _lock;
+        SafeQueue<std::shared_ptr<ExcuteEvent>> _queue;
+        excutestate _state;
+    };
+
+    // 动态缓冲区管理,用于动态调整连接的缓冲区以适应突发的流量
+    class DynamicBufferState
+    {
+    public:
+        DynamicBufferState();
+        void Update(uint32_t newbufferrecvlen);
+        uint32_t GetDynamicSize();
+
+    private:
+        uint32_t lastbuffersize;
+    };
+
+public:
+    IOuringCoreProcessImpl();
+    int Run();
+    void Stop();
+    bool Running();
+
+public:
+    bool AddNetFd(std::shared_ptr<BaseTransportConnection> Con);
+    bool DelNetFd(BaseTransportConnection *Con);
+    bool SendRes(std::shared_ptr<BaseTransportConnection> BaseCon);
+    void AddPendingDeletion(DeleteLaterImpl *ptr);
+
+private:
+    void LoopSubmitIOEvent();
+    void LoopSubmitExcuteEvent();
+    void Loop();
+    bool GetDoneIOEvents(std::vector<IOuringOPData *> &opdatas);
+    int EventProcess(IOuringOPData *opdata, std::vector<IOuringOPData *> &postOps);
+    void ThreadEnd();
+    void ProcessPendingDeletions();
+    bool AddReadShutDownEvent(IOuringOPData *opdata);
+
+private:
+    void DoPostIOEvents(std::vector<IOuringOPData *> opdatas);
+    void DoPostExcuteEvents(std::vector<std::shared_ptr<SequentialEventExecutor::ExcuteEvent>> &events);
+
+    bool SubmitWriteEvent(IOuringOPData *opdata);
+    bool SubmitReadEvent(IOuringOPData *opdata);
+    bool SubmitAcceptEvent(IOuringOPData *opdata);
+    bool SubmitWillWriteEvent(IOuringOPData *opdata);
+
+private:
+    bool _shouldshutdown;
+    bool _isrunning;
+    bool _isinitsuccess;
+    io_uring ring;
+
+    SafeMap<BaseTransportConnection *, std::shared_ptr<NetCore_IOuringData>> _IOUringData;
+    SafeArray<DeleteLaterImpl *> _pendingDeletions;
+    ThreadPool _ExcuteEventProcessPool;
+
+    std::mutex _IOEventLock;
+    std::condition_variable _IOEventCV;
+
+    std::mutex _ExcuteLock;
+    std::condition_variable _ExcuteCV;
+
+    CriticalSectionLock _doPostIOEventLock;
+};
+
+int64_t GetTimestampMilliseconds()
+{
+    auto now = std::chrono::system_clock::now();
+    auto duration = now.time_since_epoch();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+}
+
+static void setnonblocking(int fd)
+{
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+}
+
+enum class IOuringCoreProcessImpl::SequentialEventExecutor::excutestate
 {
     none = -1,
     idle = 0,
     doing = 1
 };
-struct IOuringCoreProcess::SequentialEventExecutor::ExcuteEvent
+struct IOuringCoreProcessImpl::SequentialEventExecutor::ExcuteEvent
 {
     enum class EventType
     {
@@ -136,7 +286,7 @@ public:
         data->fd = fd;
         data->weakCon = Con;
         data->raw_ptr = Con.get();
-        if (OP_Type == IOUring_OPType::OP_READ || OP_Type == IOUring_OPType::OP_WRITE)
+        if (OP_Type == IOUring_OPType::OP_READ || OP_Type == IOUring_OPType::OP_WRITE || OP_Type == IOUring_OPType::OP_SHUTDOWN)
             data->buffer.ReSize(buffersize);
         else if (OP_Type == IOUring_OPType::OP_ACCEPT)
         {
@@ -174,7 +324,7 @@ IOuringOPData *IOuringOPData::CreateWillWriteOP(std::shared_ptr<BaseTransportCon
     return data;
 }
 
-bool IOuringCoreProcess::NetCore_IOuringData::SubmitIOEvent(IOuringOPData *opdata)
+bool IOuringCoreProcessImpl::NetCore_IOuringData::SubmitIOEvent(IOuringOPData *opdata)
 {
     if (!opdata)
         return false;
@@ -189,7 +339,7 @@ bool IOuringCoreProcess::NetCore_IOuringData::SubmitIOEvent(IOuringOPData *opdat
     return false;
 }
 
-void IOuringCoreProcess::NetCore_IOuringData::GetPostIOEvent(std::vector<IOuringOPData *> &out)
+void IOuringCoreProcessImpl::NetCore_IOuringData::GetPostIOEvent(std::vector<IOuringOPData *> &out)
 {
     for (auto sender : senders)
     {
@@ -198,7 +348,7 @@ void IOuringCoreProcess::NetCore_IOuringData::GetPostIOEvent(std::vector<IOuring
     }
 }
 
-void IOuringCoreProcess::NetCore_IOuringData::NotifyIOEventDone(IOuringOPData *opdata)
+void IOuringCoreProcessImpl::NetCore_IOuringData::NotifyIOEventDone(IOuringOPData *opdata)
 {
     for (auto &sender : senders)
     {
@@ -209,7 +359,7 @@ void IOuringCoreProcess::NetCore_IOuringData::NotifyIOEventDone(IOuringOPData *o
         }
     }
 }
-void IOuringCoreProcess::NetCore_IOuringData::NotifyIOEventRetry(IOuringOPData *opdata)
+void IOuringCoreProcessImpl::NetCore_IOuringData::NotifyIOEventRetry(IOuringOPData *opdata)
 {
     for (auto &sender : senders)
     {
@@ -221,20 +371,20 @@ void IOuringCoreProcess::NetCore_IOuringData::NotifyIOEventRetry(IOuringOPData *
     }
 }
 
-IOuringCoreProcess::SequentialIOSubmitter::SequentialIOSubmitter(
-    IOuringCoreProcess *core,
+IOuringCoreProcessImpl::SequentialIOSubmitter::SequentialIOSubmitter(
+    IOuringCoreProcessImpl *core,
     std::shared_ptr<NetCore_IOuringData> &data,
     IOUring_OPType type)
     : _core(core), _weakdata(data), _type(type), _state(submitstate::idle)
 {
 }
 
-IOuringCoreProcess::SequentialIOSubmitter::~SequentialIOSubmitter()
+IOuringCoreProcessImpl::SequentialIOSubmitter::~SequentialIOSubmitter()
 {
     Release();
 }
 
-void IOuringCoreProcess::SequentialIOSubmitter::Release()
+void IOuringCoreProcessImpl::SequentialIOSubmitter::Release()
 {
     _state = submitstate::none;
 
@@ -247,7 +397,7 @@ void IOuringCoreProcess::SequentialIOSubmitter::Release()
     }
 }
 
-void IOuringCoreProcess::SequentialIOSubmitter::SubmitOPdata(IOuringOPData *opdata)
+void IOuringCoreProcessImpl::SequentialIOSubmitter::SubmitOPdata(IOuringOPData *opdata)
 {
     if (!_core)
         return;
@@ -270,7 +420,7 @@ void IOuringCoreProcess::SequentialIOSubmitter::SubmitOPdata(IOuringOPData *opda
     }
 }
 
-void IOuringCoreProcess::SequentialIOSubmitter::NotifyDone(IOuringOPData *opdata)
+void IOuringCoreProcessImpl::SequentialIOSubmitter::NotifyDone(IOuringOPData *opdata)
 {
     if (_state == submitstate::none)
         return;
@@ -302,7 +452,7 @@ void IOuringCoreProcess::SequentialIOSubmitter::NotifyDone(IOuringOPData *opdata
         _core->_IOEventCV.notify_one();
 }
 
-void IOuringCoreProcess::SequentialIOSubmitter::NotifyRetry(IOuringOPData *opdata)
+void IOuringCoreProcessImpl::SequentialIOSubmitter::NotifyRetry(IOuringOPData *opdata)
 {
     std::lock_guard<CriticalSectionLock> lock(_lock);
 
@@ -346,12 +496,12 @@ void IOuringCoreProcess::SequentialIOSubmitter::NotifyRetry(IOuringOPData *opdat
         _core->_IOEventCV.notify_one();
 }
 
-IOUring_OPType IOuringCoreProcess::SequentialIOSubmitter::GetSubmitType()
+IOUring_OPType IOuringCoreProcessImpl::SequentialIOSubmitter::GetSubmitType()
 {
     return _type;
 }
 
-void IOuringCoreProcess::SequentialIOSubmitter::GetPostIOEvent(std::vector<IOuringOPData *> &out)
+void IOuringCoreProcessImpl::SequentialIOSubmitter::GetPostIOEvent(std::vector<IOuringOPData *> &out)
 {
     if (_state != submitstate::idle)
         return;
@@ -403,8 +553,8 @@ void IOuringCoreProcess::SequentialIOSubmitter::GetPostIOEvent(std::vector<IOuri
     }
 }
 
-std::shared_ptr<IOuringCoreProcess::SequentialEventExecutor::ExcuteEvent>
-IOuringCoreProcess::SequentialEventExecutor::ExcuteEvent::CreateReadEvent(std::shared_ptr<NetCore_IOuringData> iodata, Buffer &buf)
+std::shared_ptr<IOuringCoreProcessImpl::SequentialEventExecutor::ExcuteEvent>
+IOuringCoreProcessImpl::SequentialEventExecutor::ExcuteEvent::CreateReadEvent(std::shared_ptr<NetCore_IOuringData> iodata, Buffer &buf)
 {
     std::shared_ptr<ExcuteEvent> event = std::make_shared<ExcuteEvent>(EventType::READ_DATA, iodata);
     event->data = std::make_shared<Buffer>();
@@ -412,8 +562,8 @@ IOuringCoreProcess::SequentialEventExecutor::ExcuteEvent::CreateReadEvent(std::s
     return event;
 }
 
-std::shared_ptr<IOuringCoreProcess::SequentialEventExecutor::ExcuteEvent>
-IOuringCoreProcess::SequentialEventExecutor::ExcuteEvent::CreateAcceptEvent(std::shared_ptr<NetCore_IOuringData> iodata, int client_fd, sockaddr_in client_addr)
+std::shared_ptr<IOuringCoreProcessImpl::SequentialEventExecutor::ExcuteEvent>
+IOuringCoreProcessImpl::SequentialEventExecutor::ExcuteEvent::CreateAcceptEvent(std::shared_ptr<NetCore_IOuringData> iodata, int client_fd, sockaddr_in client_addr)
 {
     std::shared_ptr<ExcuteEvent> event = std::make_shared<ExcuteEvent>(EventType::ACCEPT_CONNECTION, iodata);
     event->accept_info.client_fd = client_fd;
@@ -421,33 +571,33 @@ IOuringCoreProcess::SequentialEventExecutor::ExcuteEvent::CreateAcceptEvent(std:
     return event;
 }
 
-std::shared_ptr<IOuringCoreProcess::SequentialEventExecutor::ExcuteEvent>
-IOuringCoreProcess::SequentialEventExecutor::ExcuteEvent::CreateRDHUP(std::shared_ptr<NetCore_IOuringData> iodata)
+std::shared_ptr<IOuringCoreProcessImpl::SequentialEventExecutor::ExcuteEvent>
+IOuringCoreProcessImpl::SequentialEventExecutor::ExcuteEvent::CreateRDHUP(std::shared_ptr<NetCore_IOuringData> iodata)
 {
     std::shared_ptr<ExcuteEvent> event = std::make_shared<ExcuteEvent>(EventType::READ_HUP, iodata);
     return event;
 }
 
-IOuringCoreProcess::SequentialEventExecutor::SequentialEventExecutor(
-    IOuringCoreProcess *core,
+IOuringCoreProcessImpl::SequentialEventExecutor::SequentialEventExecutor(
+    IOuringCoreProcessImpl *core,
     std::shared_ptr<NetCore_IOuringData> &data)
     : _core(core), _weakdata(data), _state(excutestate::idle)
 {
 }
 
-IOuringCoreProcess::SequentialEventExecutor::~SequentialEventExecutor()
+IOuringCoreProcessImpl::SequentialEventExecutor::~SequentialEventExecutor()
 {
     Release();
 }
 
-void IOuringCoreProcess::SequentialEventExecutor::Release()
+void IOuringCoreProcessImpl::SequentialEventExecutor::Release()
 {
     _state = excutestate::none;
     std::lock_guard<CriticalSectionLock> lock(_lock);
     _queue.clear();
 }
 
-void IOuringCoreProcess::SequentialEventExecutor::SubmitExcuteEvent(std::shared_ptr<ExcuteEvent> event)
+void IOuringCoreProcessImpl::SequentialEventExecutor::SubmitExcuteEvent(std::shared_ptr<ExcuteEvent> event)
 {
     if (!_core)
         return;
@@ -466,7 +616,7 @@ void IOuringCoreProcess::SequentialEventExecutor::SubmitExcuteEvent(std::shared_
     }
 }
 
-void IOuringCoreProcess::SequentialEventExecutor::NotifyDone()
+void IOuringCoreProcessImpl::SequentialEventExecutor::NotifyDone()
 {
     if (_state == excutestate::none)
         return;
@@ -480,7 +630,7 @@ void IOuringCoreProcess::SequentialEventExecutor::NotifyDone()
         _core->_ExcuteCV.notify_one();
 }
 
-void IOuringCoreProcess::SequentialEventExecutor::GetPostExcuteEvent(std::vector<std::shared_ptr<ExcuteEvent>> &out)
+void IOuringCoreProcessImpl::SequentialEventExecutor::GetPostExcuteEvent(std::vector<std::shared_ptr<ExcuteEvent>> &out)
 {
     if (_state != excutestate::idle)
         return;
@@ -523,12 +673,12 @@ void IOuringCoreProcess::SequentialEventExecutor::GetPostExcuteEvent(std::vector
     }
 }
 
-IOuringCoreProcess::DynamicBufferState::DynamicBufferState()
+IOuringCoreProcessImpl::DynamicBufferState::DynamicBufferState()
 {
     lastbuffersize = RECVBUFFERDEFLEN;
 }
 
-void IOuringCoreProcess::DynamicBufferState::Update(uint32_t newbufferrecvlen)
+void IOuringCoreProcessImpl::DynamicBufferState::Update(uint32_t newbufferrecvlen)
 {
     if (newbufferrecvlen >= lastbuffersize)
     {
@@ -542,40 +692,55 @@ void IOuringCoreProcess::DynamicBufferState::Update(uint32_t newbufferrecvlen)
     }
 }
 
-uint32_t IOuringCoreProcess::DynamicBufferState::GetDynamicSize()
+uint32_t IOuringCoreProcessImpl::DynamicBufferState::GetDynamicSize()
 {
     return lastbuffersize;
 }
 
-IOuringCoreProcess *IOuringCoreProcess::Instance()
-{
-    static IOuringCoreProcess *m_Instance = new IOuringCoreProcess();
-    return m_Instance;
-}
-
-IOuringCoreProcess::IOuringCoreProcess()
-    : _ExcuteEventProcessPool(4)
+IOuringCoreProcessImpl::IOuringCoreProcessImpl()
+    : _shouldshutdown(false), _isinitsuccess(false), _isrunning(false), _ExcuteEventProcessPool(4)
 {
     memset(&ring, 0, sizeof(ring));
     int ret = io_uring_queue_init(ENTRIES, &ring, 0);
     if (ret < 0)
     {
-        std::cout << "io_uring_queue_init fail!\n";
+        _isinitsuccess = false;
+        perror("io_uring_queue_init fail!");
     }
-    _ExcuteEventProcessPool.start();
+    _isinitsuccess = true;
+    if (shutdown_eventfd < 0)
+    {
+        shutdown_eventfd = eventfd(0, EFD_NONBLOCK);
+        if (shutdown_eventfd < 0)
+        {
+            perror("shutdown_eventfd init error!");
+        }
+    }
 }
 
-int IOuringCoreProcess::Run()
+int IOuringCoreProcessImpl::Run()
 {
     try
     {
         _isrunning = true;
-        std::thread IOEventLoop(&IOuringCoreProcess::LoopSubmitIOEvent, this);
-        std::thread ExcuteEventLoop(&IOuringCoreProcess::LoopSubmitExcuteEvent, this);
-        std::thread EventLoop(&IOuringCoreProcess::Loop, this);
+        _shouldshutdown = false;
+        if (shutdown_eventfd > 0 && _isinitsuccess)
+        {
+            uint64_t value = 0;
+            ssize_t n = read(shutdown_eventfd, &value, sizeof(value));
+
+            IOuringOPData *opdata = IODATAMANAGER->AllocateData(IOUring_OPType::OP_SHUTDOWN, shutdown_eventfd, nullptr, sizeof(uint64_t));
+            opdata->fd = shutdown_eventfd;
+            AddReadShutDownEvent(opdata);
+        }
+        _ExcuteEventProcessPool.start();
+        std::thread IOEventLoop(&IOuringCoreProcessImpl::LoopSubmitIOEvent, this);
+        std::thread ExcuteEventLoop(&IOuringCoreProcessImpl::LoopSubmitExcuteEvent, this);
+        std::thread EventLoop(&IOuringCoreProcessImpl::Loop, this);
         EventLoop.join();
         IOEventLoop.join();
         ExcuteEventLoop.join();
+        _ExcuteEventProcessPool.stop();
         _isrunning = false;
 
         // ThreadEnd();
@@ -588,17 +753,39 @@ int IOuringCoreProcess::Run()
     }
 }
 
-bool IOuringCoreProcess::Running()
+bool IOuringCoreProcessImpl::Running()
 {
     return _isrunning;
 }
 
-void IOuringCoreProcess::Stop()
+void IOuringCoreProcessImpl::Stop()
 {
-    _isrunning = false;
+    if (shutdown_eventfd < 0)
+        return;
+    uint64_t num = 1;
+    write(shutdown_eventfd, &num, sizeof(uint64_t));
 }
 
-bool IOuringCoreProcess::AddNetFd(std::shared_ptr<BaseTransportConnection> Con)
+bool IOuringCoreProcessImpl::AddReadShutDownEvent(IOuringOPData *opdata)
+{
+    io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+    if (!sqe)
+        return false;
+
+    io_uring_prep_read(sqe, opdata->fd, opdata->buffer.Data(), opdata->buffer.Length(), 0);
+    io_uring_sqe_set_data(sqe, (void *)opdata);
+
+    int submitted = io_uring_submit(&ring);
+    if (submitted < 0)
+    {
+        perror("shutdown_eventfd submit to io_uring error!");
+        return false;
+    }
+
+    return true;
+}
+
+bool IOuringCoreProcessImpl::AddNetFd(std::shared_ptr<BaseTransportConnection> Con)
 {
     // cout << "AddNetFd fd :" << Con->GetFd() << endl;
     if (!Con || Con->GetFd() <= 0)
@@ -634,13 +821,13 @@ bool IOuringCoreProcess::AddNetFd(std::shared_ptr<BaseTransportConnection> Con)
     return true;
 }
 
-bool IOuringCoreProcess::DelNetFd(BaseTransportConnection *Con)
+bool IOuringCoreProcessImpl::DelNetFd(BaseTransportConnection *Con)
 {
     _IOUringData.Erase(Con);
     return true;
 }
 
-bool IOuringCoreProcess::SendRes(std::shared_ptr<BaseTransportConnection> BaseCon)
+bool IOuringCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> BaseCon)
 {
     if (!BaseCon || !(BaseCon->GetNetType() == NetType::Client))
         return false;
@@ -715,16 +902,16 @@ bool IOuringCoreProcess::SendRes(std::shared_ptr<BaseTransportConnection> BaseCo
     return true;
 }
 
-void IOuringCoreProcess::LoopSubmitIOEvent()
+void IOuringCoreProcessImpl::LoopSubmitIOEvent()
 {
 
-    if (!_isrunning)
+    if (!_isrunning || _shouldshutdown)
         return;
     else
     {
         std::lock_guard<std::mutex> lock(_IOEventLock);
         std::vector<IOuringOPData *> opdatas;
-        auto GetEvents = [&opdatas](std::map<BaseTransportConnection *, std::shared_ptr<IOuringCoreProcess::NetCore_IOuringData>> &map) -> void
+        auto GetEvents = [&opdatas](std::map<BaseTransportConnection *, std::shared_ptr<IOuringCoreProcessImpl::NetCore_IOuringData>> &map) -> void
         {
             for (const auto &[Con, iodata] : map)
             {
@@ -739,15 +926,17 @@ void IOuringCoreProcess::LoopSubmitIOEvent()
             DoPostIOEvents(opdatas);
     }
 
-    while (_isrunning)
+    while (_isrunning && !_shouldshutdown)
     {
+
         std::unique_lock<std::mutex> lock(_IOEventLock);
         _IOEventCV.wait_for(lock, std::chrono::milliseconds(50));
-        if (!_isrunning)
+
+        if (_shouldshutdown || !_isrunning)
             break;
 
         std::vector<IOuringOPData *> opdatas;
-        auto GetEvents = [&opdatas](std::map<BaseTransportConnection *, std::shared_ptr<IOuringCoreProcess::NetCore_IOuringData>> &map) -> void
+        auto GetEvents = [&opdatas](std::map<BaseTransportConnection *, std::shared_ptr<IOuringCoreProcessImpl::NetCore_IOuringData>> &map) -> void
         {
             for (const auto &[Con, iodata] : map)
             {
@@ -763,15 +952,15 @@ void IOuringCoreProcess::LoopSubmitIOEvent()
     }
 }
 
-void IOuringCoreProcess::LoopSubmitExcuteEvent()
+void IOuringCoreProcessImpl::LoopSubmitExcuteEvent()
 {
-    if (!_isrunning)
+    if (!_isrunning || _shouldshutdown)
         return;
     else
     {
         std::lock_guard<std::mutex> lock(_ExcuteLock);
         std::vector<std::shared_ptr<SequentialEventExecutor::ExcuteEvent>> events;
-        auto GetEvents = [&events](std::map<BaseTransportConnection *, std::shared_ptr<IOuringCoreProcess::NetCore_IOuringData>> &map) -> void
+        auto GetEvents = [&events](std::map<BaseTransportConnection *, std::shared_ptr<IOuringCoreProcessImpl::NetCore_IOuringData>> &map) -> void
         {
             for (auto it = map.begin(); it != map.end(); it++)
             {
@@ -784,15 +973,17 @@ void IOuringCoreProcess::LoopSubmitExcuteEvent()
             DoPostExcuteEvents(events);
     }
 
-    while (_isrunning)
+    while (_isrunning && !_shouldshutdown)
     {
+
         std::unique_lock<std::mutex> lock(_ExcuteLock);
         _ExcuteCV.wait_for(lock, std::chrono::milliseconds(50));
-        if (!_isrunning)
+
+        if (_shouldshutdown || !_isrunning)
             break;
 
         std::vector<std::shared_ptr<SequentialEventExecutor::ExcuteEvent>> events;
-        auto GetEvents = [&events](std::map<BaseTransportConnection *, std::shared_ptr<IOuringCoreProcess::NetCore_IOuringData>> &map) -> void
+        auto GetEvents = [&events](std::map<BaseTransportConnection *, std::shared_ptr<IOuringCoreProcessImpl::NetCore_IOuringData>> &map) -> void
         {
             for (auto it = map.begin(); it != map.end(); it++)
             {
@@ -806,33 +997,40 @@ void IOuringCoreProcess::LoopSubmitExcuteEvent()
     }
 }
 
-void IOuringCoreProcess::Loop()
+void IOuringCoreProcessImpl::Loop()
 {
     std::cout << "IOuringCore , EventLoop\n";
 
-    while (_isrunning)
+    while (_isrunning && !_shouldshutdown)
     {
-
         std::vector<IOuringOPData *> opdatas;
         if (!GetDoneIOEvents(opdatas))
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             break;
         }
-        if (!_isrunning)
-            break;
 
         std::vector<IOuringOPData *> postOps;
         uint32_t otherprocesscount = 0;
         for (int i = 0; i < opdatas.size(); i++)
         {
             auto opdata = opdatas[i];
+            if (opdata->OP_Type == IOUring_OPType::OP_SHUTDOWN)
+            {
+                _shouldshutdown = true;
+                std::cout << "IOuringCore , EventLoop closing......\n";
+                IODATAMANAGER->ReleaseData(opdata);
+                continue;
+            }
             EventProcess(opdata, postOps);
             IODATAMANAGER->ReleaseData(opdata);
         }
         opdatas.clear();
 
         ProcessPendingDeletions();
+
+        if (_shouldshutdown)
+            break;
 
         if (postOps.size() > 0)
         {
@@ -844,7 +1042,7 @@ void IOuringCoreProcess::Loop()
     io_uring_queue_exit(&ring);
 }
 
-bool IOuringCoreProcess::GetDoneIOEvents(std::vector<IOuringOPData *> &opdatas)
+bool IOuringCoreProcessImpl::GetDoneIOEvents(std::vector<IOuringOPData *> &opdatas)
 {
     // 非阻塞检测
     io_uring_cqe *unusecqe = nullptr;
@@ -888,7 +1086,7 @@ bool IOuringCoreProcess::GetDoneIOEvents(std::vector<IOuringOPData *> &opdatas)
     return true;
 }
 
-int IOuringCoreProcess::EventProcess(IOuringOPData *opdata, std::vector<IOuringOPData *> &postOps)
+int IOuringCoreProcessImpl::EventProcess(IOuringOPData *opdata, std::vector<IOuringOPData *> &postOps)
 {
     if (!opdata)
         return -1;
@@ -1049,7 +1247,7 @@ int IOuringCoreProcess::EventProcess(IOuringOPData *opdata, std::vector<IOuringO
     return 1;
 }
 
-void IOuringCoreProcess::DoPostIOEvents(std::vector<IOuringOPData *> opdatas)
+void IOuringCoreProcessImpl::DoPostIOEvents(std::vector<IOuringOPData *> opdatas)
 {
     std::lock_guard<CriticalSectionLock> lock(_doPostIOEventLock);
 
@@ -1090,7 +1288,7 @@ void IOuringCoreProcess::DoPostIOEvents(std::vector<IOuringOPData *> opdatas)
     }
 }
 
-void IOuringCoreProcess::DoPostExcuteEvents(std::vector<std::shared_ptr<SequentialEventExecutor::ExcuteEvent>> &events)
+void IOuringCoreProcessImpl::DoPostExcuteEvents(std::vector<std::shared_ptr<SequentialEventExecutor::ExcuteEvent>> &events)
 {
     auto task =
         [this](std::shared_ptr<SequentialEventExecutor::ExcuteEvent> event) -> void
@@ -1139,7 +1337,7 @@ void IOuringCoreProcess::DoPostExcuteEvents(std::vector<std::shared_ptr<Sequenti
     }
 }
 
-bool IOuringCoreProcess::SubmitAcceptEvent(IOuringOPData *opdata)
+bool IOuringCoreProcessImpl::SubmitAcceptEvent(IOuringOPData *opdata)
 {
     io_uring_sqe *sqe = io_uring_get_sqe(&ring);
     if (!sqe)
@@ -1151,7 +1349,7 @@ bool IOuringCoreProcess::SubmitAcceptEvent(IOuringOPData *opdata)
     return true;
 }
 
-bool IOuringCoreProcess::SubmitWriteEvent(IOuringOPData *opdata)
+bool IOuringCoreProcessImpl::SubmitWriteEvent(IOuringOPData *opdata)
 {
     io_uring_sqe *sqe = io_uring_get_sqe(&ring);
     if (!sqe)
@@ -1163,7 +1361,7 @@ bool IOuringCoreProcess::SubmitWriteEvent(IOuringOPData *opdata)
     return true;
 }
 
-bool IOuringCoreProcess::SubmitReadEvent(IOuringOPData *opdata)
+bool IOuringCoreProcessImpl::SubmitReadEvent(IOuringOPData *opdata)
 {
     io_uring_sqe *sqe = io_uring_get_sqe(&ring);
     if (!sqe)
@@ -1175,7 +1373,7 @@ bool IOuringCoreProcess::SubmitReadEvent(IOuringOPData *opdata)
     return true;
 }
 
-bool IOuringCoreProcess::SubmitWillWriteEvent(IOuringOPData *opdata)
+bool IOuringCoreProcessImpl::SubmitWillWriteEvent(IOuringOPData *opdata)
 {
     io_uring_sqe *sqe = io_uring_get_sqe(&ring);
     if (!sqe)
@@ -1187,7 +1385,7 @@ bool IOuringCoreProcess::SubmitWillWriteEvent(IOuringOPData *opdata)
     return true;
 }
 
-void IOuringCoreProcess::ProcessPendingDeletions()
+void IOuringCoreProcessImpl::ProcessPendingDeletions()
 {
     std::vector<DeleteLaterImpl *> deletions;
     _pendingDeletions.EnsureCall(
@@ -1203,7 +1401,26 @@ void IOuringCoreProcess::ProcessPendingDeletions()
     }
 }
 
-void IOuringCoreProcess::AddPendingDeletion(DeleteLaterImpl *ptr)
+void IOuringCoreProcessImpl::AddPendingDeletion(DeleteLaterImpl *ptr)
 {
     _pendingDeletions.emplace(ptr);
 }
+
+IOuringCoreProcess *IOuringCoreProcess::Instance()
+{
+    static IOuringCoreProcess *m_instance = new IOuringCoreProcess();
+    return m_instance;
+}
+
+IOuringCoreProcess::IOuringCoreProcess()
+{
+    pImpl = std::make_unique<IOuringCoreProcessImpl>();
+}
+
+int IOuringCoreProcess::Run() { return pImpl->Run(); }
+void IOuringCoreProcess::Stop() { pImpl->Stop(); }
+bool IOuringCoreProcess::Running() { return pImpl->Running(); }
+bool IOuringCoreProcess::AddNetFd(std::shared_ptr<BaseTransportConnection> Con) { return pImpl->AddNetFd(Con); }
+bool IOuringCoreProcess::DelNetFd(BaseTransportConnection *Con) { return pImpl->DelNetFd(Con); }
+bool IOuringCoreProcess::SendRes(std::shared_ptr<BaseTransportConnection> BaseCon) { return pImpl->SendRes(BaseCon); }
+void IOuringCoreProcess::AddPendingDeletion(DeleteLaterImpl *ptr) { return pImpl->AddPendingDeletion(ptr); }
