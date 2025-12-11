@@ -1,9 +1,16 @@
 #include "SpinLock.h"
 
+#ifdef __linux__
 SpinLock::SpinLock()
     : _flag(ATOMIC_FLAG_INIT)
 {
 }
+#else
+SpinLock::SpinLock()
+    : _flag()
+{
+}
+#endif
 
 bool SpinLock::trylock()
 {

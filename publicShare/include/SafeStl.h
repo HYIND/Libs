@@ -183,7 +183,7 @@ public:
 		{
 			return false;
 		}
-		t = std::move(_queue.front());
+		t =_queue.front();
 		return true;
 	}
 	// 查看队列尾元素
@@ -194,7 +194,7 @@ public:
 		{
 			return false;
 		}
-		t = std::move(_queue.back());
+		t = _queue.back();
 		return true;
 	}
 	void clear()
@@ -247,7 +247,7 @@ public:
 		{
 			return false;
 		}
-		t = std::move(_array.at(index));
+		t = _array.at(index);
 		return true;
 	}
 	// 数组删除元素
@@ -327,7 +327,7 @@ public:
 		{
 			return false;
 		}
-		t = std::move(_deque.front());
+		t = _deque.front();
 		return true;
 	}
 	// 查看队列尾元素
@@ -338,7 +338,7 @@ public:
 		{
 			return false;
 		}
-		t = std::move(_deque.back());
+		t = _deque.back();
 		return true;
 	}
 	void clear()
