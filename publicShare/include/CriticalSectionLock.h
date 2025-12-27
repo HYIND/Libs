@@ -29,3 +29,20 @@ private:
     CRITICAL_SECTION _cs;
 #endif
 };
+
+class LockGuard
+{
+public:
+    LockGuard(CriticalSectionLock &lock, bool istrylock = false);
+    bool isownlock();
+    ~LockGuard();
+
+    LockGuard(const LockGuard&) = delete;
+    LockGuard& operator=(const LockGuard&) = delete;
+    LockGuard(LockGuard&&) = delete;
+    LockGuard& operator=(LockGuard&&) = delete;
+
+private:
+    CriticalSectionLock &_lock;
+    bool _isownlock;
+};

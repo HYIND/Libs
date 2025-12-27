@@ -31,23 +31,28 @@ void CriticalSectionLock::Leave()
 
 #elif defined(_WIN32)
 
-CriticalSectionLock::CriticalSectionLock() {
+CriticalSectionLock::CriticalSectionLock()
+{
     InitializeCriticalSection(&_cs);
 }
 
-CriticalSectionLock::~CriticalSectionLock() {
+CriticalSectionLock::~CriticalSectionLock()
+{
     DeleteCriticalSection(&_cs);
 }
 
-bool CriticalSectionLock::TryEnter() {
+bool CriticalSectionLock::TryEnter()
+{
     return TryEnterCriticalSection(&_cs) != 0;
 }
 
-void CriticalSectionLock::Enter() {
+void CriticalSectionLock::Enter()
+{
     EnterCriticalSection(&_cs);
 }
 
-void CriticalSectionLock::Leave() {
+void CriticalSectionLock::Leave()
+{
     LeaveCriticalSection(&_cs);
 }
 
@@ -61,4 +66,29 @@ void CriticalSectionLock::lock()
 void CriticalSectionLock::unlock()
 {
     Leave();
+}
+
+LockGuard::LockGuard(CriticalSectionLock &lock, bool istrylock)
+    : _lock(lock), _isownlock(false)
+{
+    if (!istrylock)
+    {
+        _lock.Enter();
+        _isownlock = true;
+    }
+    else
+    {
+        _isownlock = _lock.TryEnter();
+    }
+}
+
+bool LockGuard::isownlock()
+{
+    return _isownlock;
+}
+
+LockGuard::~LockGuard()
+{
+    if (_isownlock)
+        _lock.Leave();
 }

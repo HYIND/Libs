@@ -140,13 +140,6 @@ private:
         void NotifyDone();
         void GetPostExcuteEvent(std::vector<std::shared_ptr<ExcuteEvent>> &out);
 
-        // void SubmitReadEvent(Buffer &buf);
-        // void SubmitAcceptEvent(int clientfd, sockaddr_in addr);
-        // void SubmitRDHUPEvent();
-
-        // private:
-        //     void ProcessQueue();
-
     private:
         IOuringCoreProcessImpl *_core;
         std::weak_ptr<NetCore_IOuringData> _weakdata;
@@ -836,7 +829,8 @@ bool IOuringCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> Ba
     if (!Con)
         return false;
 
-    if (!Con->GetSendMtx().TryEnter())
+    LockGuard lock(Con->GetSendMtx(), true);
+    if (!lock.isownlock())
         return true; // 写锁正在被其他线程占用
 
     int fd = Con->GetFd();
@@ -854,7 +848,11 @@ bool IOuringCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> Ba
         iodata->senders.emplace_back(std::make_shared<SequentialIOSubmitter>(this, iodata, IOUring_OPType::OP_WILLWRITE));
         iodata->recver = std::make_shared<SequentialEventExecutor>(this, iodata);
         iodata->state = std::make_shared<DynamicBufferState>();
-        _IOUringData.Insert(Con.get(), iodata);
+        if (!_IOUringData.Insert(Con.get(), iodata))
+        {
+            if (!_IOUringData.Find(Con.get(), iodata))
+                return false;
+        }
     }
 
     int count = 0;
@@ -879,10 +877,7 @@ bool IOuringCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> Ba
                 bool submit = iodata->SubmitIOEvent(opdata);
                 SAFE_DELETE(buffer);
                 if (!submit)
-                {
-                    Con->GetSendMtx().unlock();
                     break;
-                }
             }
         }
         count++;
@@ -892,13 +887,9 @@ bool IOuringCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> Ba
     {
         IOuringOPData *opdata = IOuringOPData::CreateWillWriteOP(Con);
         if (!iodata->SubmitIOEvent(opdata))
-        {
-            Con->GetSendMtx().unlock();
             return false;
-        }
     }
 
-    Con->GetSendMtx().unlock();
     return true;
 }
 

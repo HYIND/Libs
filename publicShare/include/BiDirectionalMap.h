@@ -1,5 +1,6 @@
 #include <unordered_map>
 #include <algorithm>
+#include <vector>
 
 //双向映射容器
 

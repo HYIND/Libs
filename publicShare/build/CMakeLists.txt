@@ -1,18 +1,16 @@
-cmake_minimum_required (VERSION 3.16)
+cmake_minimum_required(VERSION 3.16)
 
 project(publicShare C CXX)
 
-# 定义编译选项
-option(MessageQueue_ON "Enable MessageQueue module" ON)
-option(Mysql_ON "Enable MySQL module" ON)
-option(Redis_ON "Enable Redis module" ON)
+option(MessageQueue_ON "Enable MessageQueue module" OFF)
+option(Mysql_ON "Enable MySQL module" OFF)
+option(Redis_ON "Enable Redis module" OFF)
 
 include_directories(../include)
 
-# 收集源文件
 set(ALL_SRC_FILES)
 
-#可选模块
+# 可选模块
 if(MessageQueue_ON)
     list(APPEND ALL_SRC_FILES ../src/MessageQueue.cpp)
     add_definitions(-DMESSAGEQUEUE_ENABLED=1)
@@ -28,7 +26,7 @@ if(Redis_ON)
     add_definitions(-DREDIS_ENABLED=1)
 endif()
 
-# 总是包含的基础模块
+# 基础模块
 list(APPEND ALL_SRC_FILES
     ../src/Config.cpp
     ../src/CriticalSectionLock.cpp
@@ -37,26 +35,22 @@ list(APPEND ALL_SRC_FILES
     ../src/RateLimiter.cpp
     ../src/ThreadPool.cpp
     ../src/ResourcePool.cpp
+    ../src/Timer.cpp
 )
 
 ADD_LIBRARY(public SHARED ${ALL_SRC_FILES})
 
-
-IF (CMAKE_SYSTEM_NAME MATCHES "Linux")
-
+IF(CMAKE_SYSTEM_NAME MATCHES "Linux")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread -lfmt")
 
     IF(Mysql_ON)
         target_link_libraries(public libmysqlclient.so)
     ENDIF()
-
-ENDIF ()
-
+ENDIF()
 
 set(CMAKE_BUILD_TYPE "Debug")
 
 SET(LIBRARY_OUTPUT_PATH ../bin)
-
 
 message(STATUS "=== publicShare 模块配置 ===")
 message(STATUS "MessageQueue: ${MessageQueue_ON}")
