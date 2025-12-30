@@ -3,6 +3,7 @@
 #include "EndPoint/PureTCPClient.h"
 #include "Session/BaseNetWorkSession.h"
 #include "SpinLock.h"
+#include "Coroutine.h"
 
 struct CustomPackage
 {
@@ -28,8 +29,9 @@ class CustomTcpSession : public BaseNetWorkSession
 public:
     CustomTcpSession(PureTCPClient *client = nullptr);
     ~CustomTcpSession();
-    virtual bool Connect(const std::string &IP, uint16_t Port);
-    virtual bool Release();
+    EXPORT_FUNC virtual bool Connect(const std::string &IP, uint16_t Port);
+    EXPORT_FUNC virtual Task<bool> ConnectAsync(const std::string &IP, uint16_t Port);
+    EXPORT_FUNC virtual bool Release();
 
     EXPORT_FUNC bool AsyncSend(const Buffer &buffer);                   // 异步发送，不关心返回结果
     EXPORT_FUNC bool AwaitSend(const Buffer &buffer, Buffer &response); // 等待返回结果的发送，关心返回的结果
@@ -37,6 +39,7 @@ public:
 
 public:
     EXPORT_FUNC virtual bool TryHandshake(uint32_t timeOutMs);
+    EXPORT_FUNC virtual Task<bool> TryHandshakeAsync(uint32_t timeOutMs);
     EXPORT_FUNC virtual CheckHandshakeStatus CheckHandshakeTryMsg(Buffer &buffer);
     EXPORT_FUNC virtual CheckHandshakeStatus CheckHandshakeConfirmMsg(Buffer &buffer);
 

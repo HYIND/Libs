@@ -84,7 +84,7 @@ bool TCPTransportListener::Listen(const string &IP, int Port)
 		perror("Create fd error");
 		return false;
 	}
-	int ret = listen(fd, 10);
+	int ret = listen(fd, 5000);
 	if (ret < 0)
 	{
 		perror("listen socket error");
@@ -191,7 +191,7 @@ bool TCPTransportConnection::Connect(const std::string &IP, uint16_t Port)
 		return false;
 	}
 	int result = connect(fd, (struct sockaddr *)&_addr, sizeof(struct sockaddr));
-	if (result == -1)
+	if (result < 0)
 	{
 		perror("connect socket error");
 		return false;
@@ -201,6 +201,35 @@ bool TCPTransportConnection::Connect(const std::string &IP, uint16_t Port)
 	NetCore->AddNetFd(GetBaseShared());
 	return true;
 }
+
+Task<bool> TCPTransportConnection::ConnectAsync(const std::string &IP, uint16_t Port)
+{
+	if (ValidSocket())
+		Release();
+
+	int fd = NewClientSocket(IP, Port, _type == SocketType::UDP ? SOCK_DGRAM : SOCK_STREAM, _addr);
+	if (fd == -1)
+	{
+		perror("Create fd error");
+		co_return false;
+	}
+
+	// int result = connect(fd, (struct sockaddr *)&_addr, sizeof(struct sockaddr));
+	int result = co_await CoConnection(fd, _addr);
+
+	if (result == -1)
+	{
+		perror("connectAsync socket error");
+		co_return false;
+	}
+
+	this->_fd = fd;
+
+	NetCore->AddNetFd(GetBaseShared());
+
+	co_return true;
+}
+
 void TCPTransportConnection::Apply(const int fd, const sockaddr_in &sockaddr, const SocketType type)
 {
 	if (ValidSocket())
@@ -220,6 +249,7 @@ bool TCPTransportConnection::Release()
 		result = false;
 	else
 	{
+		// std::cout << std::this_thread::get_id() << " close " << _fd << "\n";
 		_fd = -1;
 		result = true;
 	}
@@ -265,10 +295,12 @@ int TCPTransportConnection::Read(Buffer &buffer, int length)
 void TCPTransportConnection::BindBufferCallBack(function<void(TCPTransportConnection *, Buffer *)> callback)
 {
 	_callbackBuffer = callback;
+	OnBindBufferCallBack();
 }
 void TCPTransportConnection::BindRDHUPCallBack(function<void(TCPTransportConnection *)> callback)
 {
 	_callbackRDHUP = callback;
+	OnBindRDHUPCallBack();
 }
 SafeQueue<Buffer *> &TCPTransportConnection::GetRecvData() { return _RecvDatas; }
 SafeQueue<Buffer *> &TCPTransportConnection::GetSendData() { return _SendDatas; }
@@ -343,19 +375,44 @@ void TCPTransportConnection::OnREAD(int fd)
 		}
 		recvcount--;
 	}
+
+	std::lock_guard<SpinLock> lock(_ProcessLock);
 	ProcessRecvQueue();
 }
 void TCPTransportConnection::OnREAD(int fd, Buffer &buf)
 {
+
 	Buffer *copybuf = new Buffer();
 	copybuf->CopyFromBuf(buf);
 
 	_RecvDatas.enqueue(copybuf);
+
+	std::lock_guard<SpinLock> lock(_ProcessLock);
 	ProcessRecvQueue();
 }
 
 void TCPTransportConnection::OnACCEPT(int fd) {}
 void TCPTransportConnection::OnACCEPT(int fd, int newclient, sockaddr_in addr) {}
+
+void TCPTransportConnection::OnBindBufferCallBack()
+{
+	if (_ProcessLock.trylock())
+	{
+		try
+		{
+			ProcessRecvQueue();
+		}
+		catch (const std::exception &e)
+		{
+			std::cerr << e.what() << '\n';
+		}
+		_ProcessLock.unlock();
+	}
+}
+
+void TCPTransportConnection::OnBindRDHUPCallBack()
+{
+}
 
 void TCPTransportConnection::ProcessRecvQueue()
 {

@@ -44,6 +44,8 @@
 
 #include "Helper/Buffer.h"
 #include "SafeStl.h"
+#include "Coroutine.h"
+#include "SpinLock.h"
 
 enum NetType
 {
@@ -107,6 +109,7 @@ public:
 	EXPORT_FUNC TCPTransportConnection();
 	EXPORT_FUNC ~TCPTransportConnection();
 	EXPORT_FUNC bool Connect(const std::string &IP, uint16_t Port);
+	EXPORT_FUNC Task<bool> ConnectAsync(const std::string &IP, uint16_t Port);
 	EXPORT_FUNC void Apply(const int fd, const sockaddr_in &sockaddr, const SocketType type);
 	EXPORT_FUNC bool Release();
 	EXPORT_FUNC bool Send(const Buffer &buffer);
@@ -126,6 +129,10 @@ public:
 	EXPORT_FUNC virtual void OnACCEPT(int fd);									// 接受新连接事件
 	EXPORT_FUNC virtual void OnACCEPT(int fd, int newclient, sockaddr_in addr); // 接受新连接事件
 
+protected:
+	EXPORT_FUNC virtual void OnBindBufferCallBack();
+	EXPORT_FUNC virtual void OnBindRDHUPCallBack();
+
 private:
 	void ProcessRecvQueue();
 
@@ -137,6 +144,7 @@ private:
 	std::function<void(TCPTransportConnection *, Buffer *)> _callbackBuffer;
 	std::function<void(TCPTransportConnection *)> _callbackRDHUP;
 	CriticalSectionLock _SendResMtx;
+	SpinLock _ProcessLock;
 };
 
 // TCP传输层监听器

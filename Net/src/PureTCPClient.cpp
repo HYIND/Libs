@@ -34,6 +34,11 @@ bool PureTCPClient::Connect(const std::string &IP, uint16_t Port)
     return Base::Connect(IP, Port);
 }
 
+Task<bool> PureTCPClient::ConnectAsync(const std::string &IP, uint16_t Port)
+{
+    co_return co_await Base::ConnectAsync(IP, Port);
+}
+
 bool PureTCPClient::Release()
 {
     cacheBuffer.Release();
@@ -51,13 +56,19 @@ bool PureTCPClient::OnRecvBuffer(Buffer *buffer)
     if (buffer->Remaind() > 0)
         cacheBuffer.Append(*buffer);
 
+    std::lock_guard<SpinLock> lock(_ProcessLock);
+    ProcessCacheBuffer();
+
+    return true;
+}
+
+void PureTCPClient::ProcessCacheBuffer()
+{
     if (_callbackMessage)
     {
         _callbackMessage(this, &cacheBuffer);
         cacheBuffer.Release();
     }
-
-    return true;
 }
 
 bool PureTCPClient::OnConnectClose()
@@ -89,6 +100,11 @@ bool PureTCPClient::TryHandshake(uint32_t timeOutMs)
     return true;
 }
 
+Task<bool> PureTCPClient::TryHandshakeAsync(uint32_t timeOutMs)
+{
+    co_return true;
+}
+
 CheckHandshakeStatus PureTCPClient::CheckHandshakeTryMsg(Buffer &buffer)
 {
     isHandshakeComplete = true;
@@ -99,4 +115,25 @@ CheckHandshakeStatus PureTCPClient::CheckHandshakeConfirmMsg(Buffer &buffer)
 {
     isHandshakeComplete = true;
     return CheckHandshakeStatus::Success;
+}
+
+void PureTCPClient::OnBindMessageCallBack()
+{
+    if (_ProcessLock.trylock())
+    {
+        try
+        {
+            ProcessCacheBuffer();
+        }
+        catch (const std::exception &e)
+        {
+            _ProcessLock.unlock();
+            std::cerr << e.what() << '\n';
+        }
+        _ProcessLock.unlock();
+    }
+}
+
+void PureTCPClient::OnBindCloseCallBack()
+{
 }

@@ -802,7 +802,7 @@ bool IOuringCoreProcessImpl::AddNetFd(std::shared_ptr<BaseTransportConnection> C
         IOuringOPData *opdata = IOuringOPData::CreateReadOP(Con, iodata->state->GetDynamicSize());
         iodata->SubmitIOEvent(opdata);
     }
-    if (Con->GetNetType() == NetType::Listener)
+    else if (Con->GetNetType() == NetType::Listener)
     {
         iodata->senders.emplace_back(std::make_shared<SequentialIOSubmitter>(this, iodata, IOUring_OPType::OP_ACCEPT));
         _IOUringData.Insert(Con.get(), iodata);
@@ -1276,6 +1276,10 @@ void IOuringCoreProcessImpl::DoPostIOEvents(std::vector<IOuringOPData *> opdatas
     if (submitted < 0)
     {
         std::cout << "io_uring_submit error!";
+    }
+    if (submitted != opdatas.size())
+    {
+        std::cout << "io_uring_submit diff!";
     }
 }
 

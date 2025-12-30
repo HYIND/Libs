@@ -1,7 +1,7 @@
 #include "Session/BaseNetWorkSession.h"
 
 BaseNetWorkSession::BaseNetWorkSession()
-    : isHandshakeComplete(false)
+    : isHandshakeComplete(false), _handshaketimeout(nullptr)
 {
 }
 
@@ -10,6 +10,8 @@ BaseNetWorkSession::~BaseNetWorkSession()
     isHandshakeComplete = false;
     _callbackRecvData = nullptr;
     _callbackSessionClose = nullptr;
+    if (_handshaketimeout)
+        SAFE_DELETE(_handshaketimeout);
 }
 
 bool BaseNetWorkSession::Connect(const std::string &IP, uint16_t Port)
@@ -31,6 +33,27 @@ bool BaseNetWorkSession::Connect(const std::string &IP, uint16_t Port)
 
     BaseClient->BindCloseCallBack(std::bind(&BaseNetWorkSession::SessionClose, this, std::placeholders::_1));
     return true;
+}
+
+Task<bool> BaseNetWorkSession::ConnectAsync(const std::string &IP, uint16_t Port)
+{
+    Release();
+
+    bool result = co_await BaseClient->ConnectAsync(IP, Port);
+    if (!result)
+        co_return false;
+
+    BaseClient->BindMessageCallBack(std::bind(&BaseNetWorkSession::RecvData, this, std::placeholders::_1, std::placeholders::_2));
+    // 尝试握手，超时时间10秒
+    if (!co_await TryHandshakeAsync(10 * 1000))
+    {
+        std::cout << "BaseNetWorkSession::ConnectAsync TryHandshake Connect Fail! CloseConnection\n";
+        Release();
+        co_return false;
+    }
+
+    BaseClient->BindCloseCallBack(std::bind(&BaseNetWorkSession::SessionClose, this, std::placeholders::_1));
+    co_return true;
 }
 
 bool BaseNetWorkSession::Release()

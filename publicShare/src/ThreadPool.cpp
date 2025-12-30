@@ -1,7 +1,7 @@
 #include "ThreadPool.h"
 
 ThreadPool::ThreadPool(uint32_t threads_num)
-    : _stop(true)
+    : _stop(true), next_thread(0)
 {
     if (threads_num <= 0)
         threads_num = std::thread::hardware_concurrency();
@@ -14,27 +14,54 @@ void ThreadPool::start()
         return;
 
     _stop = false;
-    for (int i = 0; i < _threadscount; ++i)
+    if (_threads.empty())
     {
-        _threads.emplace_back(std::thread(ThreadWorker(this, i))); // 分配工作线程
+        for (int i = 0; i < _threadscount; ++i)
+        {
+            std::shared_ptr<ThreadData> data = std::make_shared<ThreadData>();
+            data->id = i;
+            data->stop = false;
+            data->thread = std::thread(ThreadWorker(this, data)); // 分配工作线程
+            _threads.emplace_back(data);
+        }
+    }
+    else
+    {
+        for (int i = 0; i < _threads.size(); ++i)
+        {
+            std::lock_guard<std::mutex> lock(_threads[i]->mutex);
+            _threads[i]->stop = false;
+            _threads[i]->thread = std::thread(ThreadWorker(this, _threads[i]));
+        }
     }
 }
 void ThreadPool::stop()
 {
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _stop = true;
-    }
+    _stop = true;
 
-    _cv.notify_all(); // 通知，唤醒所有工作线程
+    for (int i = 0; i < _threads.size(); ++i) // 唤醒所有工作线程
+    {
+        std::lock_guard<std::mutex> lock(_threads[i]->mutex);
+        _threads[i]->stop = true;
+        _threads[i]->cv.notify_all();
+    }
     for (int i = 0; i < _threads.size(); ++i)
     {
-        if (_threads.at(i).joinable()) // 判断线程是否在等待
-        {
-            _threads.at(i).join(); // 将线程加入到等待队列
-        }
+        if (_threads[i]->thread.joinable())
+            _threads[i]->thread.join();
+        _threads[i]->queue.clear();
     }
-    _queue.clear();
+}
+
+uint32_t ThreadPool::workersize()
+{
+    return _threadscount;
+}
+
+uint32_t ThreadPool::GetAvailablieThread()
+{
+    uint32_t thread_id = next_thread.fetch_add(1, std::memory_order_relaxed) % _threads.size();
+    return thread_id;
 }
 
 void ThreadPool::ThreadWorker::operator()()
@@ -44,23 +71,18 @@ void ThreadPool::ThreadWorker::operator()()
     {
         std::function<void()> func; // 定义基础函数类func
         {
-            // 为线程环境加锁，互访问工作线程的休眠和唤醒
-            std::unique_lock<std::mutex> lock(m_pool->_mutex);
-
-            // 如果任务队列为空，阻塞当前线程
-            if (!m_pool->_stop && m_pool->_queue.empty())
+            std::unique_lock<std::mutex> lock(m_data->mutex);
+            if (!m_pool->_stop && !m_data->stop && m_data->queue.empty())
             {
-                m_pool->_cv.wait(lock); // 等待条件变量通知，开启线程
+                m_data->cv.wait(lock);
             }
-
-            // 如果线程池已停止且队列为空，退出线程
-            if (m_pool->_stop && m_pool->_queue.empty())
+            if ((m_pool->_stop || m_data->stop) && m_data->queue.empty())
             {
                 return;
             }
 
             // 取出任务队列中的元素
-            dequeued = m_pool->_queue.dequeue(func);
+            dequeued = m_data->queue.dequeue(func);
         }
 
         // 如果成功取出，执行工作函数

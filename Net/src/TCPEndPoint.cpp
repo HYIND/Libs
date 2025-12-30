@@ -113,6 +113,17 @@ bool TCPEndPoint::Connect(const std::string &IP, uint16_t Port)
     return true;
 }
 
+Task<bool> TCPEndPoint::ConnectAsync(const std::string &IP, uint16_t Port)
+{
+    if (!co_await BaseCon->ConnectAsync(IP, Port))
+        co_return false;
+
+    BaseCon->BindBufferCallBack(std::bind(&TCPEndPoint::RecvBuffer, this, std::placeholders::_1, std::placeholders::_2));
+    BaseCon->BindRDHUPCallBack(std::bind(&TCPEndPoint::ConnectClose, this, std::placeholders::_1));
+
+    co_return true;
+}
+
 bool TCPEndPoint::Release()
 {
     if (!BaseCon)

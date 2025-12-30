@@ -8,7 +8,7 @@ include_directories(../../Log/include)
 
 aux_source_directory(../src DIR_SRC)
 
-option(USE_IO_URING "Use io_uring instead of epoll" OFF)
+option(USE_IO_URING "Use io_uring instead of epoll" ON)
 
 if(USE_IO_URING)
     message(STATUS "Building with io_uring support")
@@ -30,4 +30,4 @@ target_link_libraries(public INTERFACE Threads::Threads)
 
 set(CMAKE_BUILD_TYPE "Debug")
 SET(LIBRARY_OUTPUT_PATH ../bin)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread -lfmt -fpermissive")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread -lfmt -fpermissive -fcoroutines")

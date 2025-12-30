@@ -29,19 +29,23 @@ public:
 
 public:
     EXPORT_FUNC virtual bool Connect(const std::string &IP, uint16_t Port);
+    EXPORT_FUNC virtual Task<bool> ConnectAsync(const std::string &IP, uint16_t Port);
     EXPORT_FUNC virtual bool Release();
 
     EXPORT_FUNC virtual bool OnRecvBuffer(Buffer *buffer); // 用于绑定网络层(TCP/UDP)触发的Buffer回调
     EXPORT_FUNC virtual bool OnConnectClose();
 
-    EXPORT_FUNC virtual void OnBindMessageCallBack();
-
     EXPORT_FUNC virtual bool Send(const Buffer &buffer);
 
 public:
     EXPORT_FUNC virtual bool TryHandshake(uint32_t timeOutMs);
+    EXPORT_FUNC virtual Task<bool> TryHandshakeAsync(uint32_t timeOutMs);
     EXPORT_FUNC virtual CheckHandshakeStatus CheckHandshakeTryMsg(Buffer &buffer);
     EXPORT_FUNC virtual CheckHandshakeStatus CheckHandshakeConfirmMsg(Buffer &buffer);
+
+protected:
+    EXPORT_FUNC virtual void OnBindMessageCallBack();
+    EXPORT_FUNC virtual void OnBindCloseCallBack();
 
 private:
     void ProcessPakage(WebSocketPackage *newpak = nullptr);

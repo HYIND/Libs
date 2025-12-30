@@ -130,6 +130,11 @@ bool CustomTcpSession::Connect(const std::string &IP, uint16_t Port)
     return Base::Connect(IP, Port);
 }
 
+Task<bool> CustomTcpSession::ConnectAsync(const std::string &IP, uint16_t Port)
+{
+    co_return co_await Base::ConnectAsync(IP, Port);
+}
+
 bool CustomTcpSession::Release()
 {
     bool result = Base::Release();
@@ -374,6 +379,24 @@ bool CustomTcpSession::TryHandshake(uint32_t timeOutMs)
                                     { return isHandshakeComplete; });
 }
 
+Task<bool> CustomTcpSession::TryHandshakeAsync(uint32_t timeOutMs)
+{
+    Buffer token(CustomProtocolTryToken, sizeof(CustomProtocolTryToken) - 1);
+
+    if (_handshaketimeout)
+        SAFE_DELETE(_handshaketimeout);
+
+    _handshaketimeout = new CoTimer(std::chrono::milliseconds((int64_t)timeOutMs));
+    if (!BaseClient->Send(token))
+        co_return false;
+
+    co_await (*_handshaketimeout);
+    LockGuard lock(_Colock);
+    SAFE_DELETE(_handshaketimeout);
+
+    co_return isHandshakeComplete;
+}
+
 CheckHandshakeStatus CustomTcpSession::CheckHandshakeTryMsg(Buffer &buffer)
 {
     if (isHandshakeComplete)
@@ -421,7 +444,13 @@ CheckHandshakeStatus CustomTcpSession::CheckHandshakeConfirmMsg(Buffer &buffer)
     cacheBuffer.Seek(0);
 
     isHandshakeComplete = true;
-    _tryHandshakeCV.notify_all();
+
+    LockGuard lock(_Colock);
+    if (_handshaketimeout)
+        _handshaketimeout->wake();
+    else
+        _tryHandshakeCV.notify_all();
+
     return CheckHandshakeStatus::Success;
 }
 

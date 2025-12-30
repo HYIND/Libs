@@ -36,17 +36,19 @@ list(APPEND ALL_SRC_FILES
     ../src/ThreadPool.cpp
     ../src/ResourcePool.cpp
     ../src/Timer.cpp
+    ../src/Coroutine.cpp
 )
 
 ADD_LIBRARY(public SHARED ${ALL_SRC_FILES})
 
 IF(CMAKE_SYSTEM_NAME MATCHES "Linux")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread -lfmt")
-
     IF(Mysql_ON)
         target_link_libraries(public libmysqlclient.so)
     ENDIF()
 ENDIF()
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoroutines")
 
 set(CMAKE_BUILD_TYPE "Debug")
 
