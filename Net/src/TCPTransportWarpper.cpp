@@ -217,7 +217,7 @@ Task<bool> TCPTransportConnection::ConnectAsync(const std::string &IP, uint16_t 
 	// int result = connect(fd, (struct sockaddr *)&_addr, sizeof(struct sockaddr));
 	int result = co_await CoConnection(fd, _addr);
 
-	if (result == -1)
+	if (result < 0)
 	{
 		perror("connectAsync socket error");
 		co_return false;

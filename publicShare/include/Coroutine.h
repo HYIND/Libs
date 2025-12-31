@@ -317,28 +317,38 @@ inline Task<void> TaskPromise<void>::get_return_object() noexcept
 class CoTimer
 {
 public:
+    enum class WakeType
+    {
+        Error = -1,
+        RUNNING = 0,
+        TIMEOUT,
+        MANUAL_WAKE
+    };
+
     struct Handle
     {
+        Handle();
+        ~Handle();
+
         int timer_fd;
-        uint64_t expiration_count;
         bool active;
-        bool isrepeat;
 
         std::coroutine_handle<> coroutine;
         std::atomic<bool> corodone{false};
-
         CriticalSectionLock corolock;
+
+        std::atomic<WakeType> wakeresult;
     };
 
     struct Awaiter
     {
-        Awaiter(std::weak_ptr<CoTimer::Handle> handle);
+        Awaiter(std::shared_ptr<CoTimer::Handle> handle);
 
         bool await_ready() const noexcept;
         void await_suspend(std::coroutine_handle<> h);
-        bool await_resume() noexcept;
+        WakeType await_resume() noexcept;
 
-        std::weak_ptr<CoTimer::Handle> handle;
+        std::shared_ptr<CoTimer::Handle> handle;
         uint64_t expected_count;
         std::coroutine_handle<> coroutine;
     };
@@ -350,7 +360,7 @@ public:
     void wake();                 // 立即唤醒
 
 private:
-    std::weak_ptr<Handle> handle;
+    std::shared_ptr<Handle> handle;
 };
 
 // 协程连接器包装器

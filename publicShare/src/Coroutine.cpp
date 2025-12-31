@@ -51,8 +51,8 @@ public:
     bool Running();
 
 public: // Timer
-    std::weak_ptr<CoTimer::Handle> create_timer(std::chrono::milliseconds interval, bool periodic = false);
-    void wake_timer(std::weak_ptr<CoTimer::Handle> weakhandle);
+    std::shared_ptr<CoTimer::Handle> create_timer(std::chrono::milliseconds interval);
+    void wake_timer(std::shared_ptr<CoTimer::Handle> weakhandle);
     bool RegisterTimerCoroutine(std::shared_ptr<CoTimer::Handle> handlehandle, std::coroutine_handle<> coroutine);
 
 public: // Task
@@ -114,78 +114,58 @@ private:
     // CriticalSectionLock _coroutine_thread_map_lock;
 };
 
-int64_t GetTimestampMilliseconds()
+CoTimer::Awaiter::Awaiter(std::shared_ptr<CoTimer::Handle> handle) : handle(handle)
 {
-    auto now = std::chrono::system_clock::now();
-    auto duration = now.time_since_epoch();
-    return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-}
-
-CoTimer::Awaiter::Awaiter(std::weak_ptr<CoTimer::Handle> handle) : handle(handle)
-{
-    auto shared = handle.lock();
-    if (shared)
-    {
-        expected_count = shared->expiration_count + 1;
-    }
 }
 
 bool CoTimer::Awaiter::await_ready() const noexcept
 {
-    auto shared = handle.lock();
-    return !shared || !shared->active;
+    return !handle || !handle->active;
 }
 
 void CoTimer::Awaiter::await_suspend(std::coroutine_handle<> corohandle)
 {
-    auto shared = handle.lock();
-    if (!shared || !shared->active)
+    if (!handle || !handle->active)
     {
         // 定时器过期，立即恢复协程
         bool expected = false;
-        if (shared->corodone.compare_exchange_strong(expected, true))
-        {
-            std::cout << "timer_fd resume" << "\n";
+        if (handle->corodone.compare_exchange_strong(expected, true))
             corohandle.resume();
-        }
         return;
     }
 
-    coroutine = corohandle;
-
-    // 自动注册协程到定时器
-    if (!CoroutineScheduler::Instance()->RegisterTimerCoroutine(shared, coroutine))
+    // 注册协程到定时器
+    // 注册失败立即恢复协程
+    if (!CoroutineScheduler::Instance()->RegisterTimerCoroutine(handle, corohandle))
     {
         bool expected = false;
-        if (shared->corodone.compare_exchange_strong(expected, true))
-        {
-            std::cout << "timer_fd resume" << "\n";
+        if (handle->corodone.compare_exchange_strong(expected, true))
             corohandle.resume();
-        }
         return;
     }
 }
 
-bool CoTimer::Awaiter::await_resume() noexcept
+CoTimer::WakeType CoTimer::Awaiter::await_resume() noexcept
 {
-    auto shared = handle.lock();
-    if (!shared || !shared->active)
-        return false;
-
-    // 读取定时器事件，防止一直触发
-    uint64_t expirations;
-    ssize_t ret = read(shared->timer_fd, &expirations, sizeof(expirations));
-
-    return ret > 0 && expirations > 0;
+    if (handle)
+    {
+        uint64_t value;
+        ssize_t ret = read(handle->timer_fd, &value, sizeof(value));
+        return handle->wakeresult;
+    }
+    return CoTimer::WakeType::Error;
 }
 
 CoTimer::CoTimer(std::chrono::milliseconds timeout, bool periodic)
 {
-    handle = CoroutineScheduler::Instance()->create_timer(timeout, periodic);
+    handle = CoroutineScheduler::Instance()->create_timer(timeout);
+    if (!handle)
+        std::cerr << "CoTimer create_timer fail!";
 }
 
 CoTimer::~CoTimer()
 {
+    wake();
 }
 
 // 协程等待操作
@@ -197,7 +177,8 @@ CoTimer::Awaiter CoTimer::operator co_await()
 // 立即唤醒
 void CoTimer::wake()
 {
-    CoroutineScheduler::Instance()->wake_timer(handle);
+    if (handle)
+        CoroutineScheduler::Instance()->wake_timer(handle);
 }
 
 CoConnection::Awaiter::Awaiter(int fd, sockaddr_in addr)
@@ -450,44 +431,34 @@ int CoroutineScheduler::EventProcess(IOuringOPData *opdata)
 
             {
                 LockGuard lock(handle->corolock);
-
-                handle->expiration_count++;
-
-                std::coroutine_handle<void> coro = handle->coroutine;
-                if (handle->active && coro && !coro.done())
+                if (handle->active)
                 {
-                    auto task = [coro, handle]() -> void
+                    std::coroutine_handle<> coro = handle->coroutine;
+                    if (coro && !coro.done())
                     {
-                        bool expected = false;
-                        if (handle->corodone.compare_exchange_strong(expected, true))
+                        auto task = [coro, handle]() -> void
                         {
-                            if (!coro.done())
-                                coro.resume();
-                        }
-                    };
-
-                    // 查找并恢复对应的协程
-                    ExcuteCoroutine(task);
-                }
-                else
-                {
-                    std::cout << "find coroutine in handle " << timer_fd << " not found\n";
-                }
-                if (handle->isrepeat)
+                            if (handle)
+                            {
+                                bool expected = false;
+                                if (handle->corodone.compare_exchange_strong(expected, true))
+                                {
+                                    if (!coro.done())
+                                    {
+                                        coro.resume();
+                                        handle->coroutine = nullptr;
+                                    }
+                                }
+                            }
+                        };
+                        auto expected = CoTimer::WakeType::RUNNING;
+                        handle->wakeresult.compare_exchange_strong(expected, CoTimer::WakeType::TIMEOUT);
+                        ExcuteCoroutine(task); // 恢复对应的协程
+                    }
                     handle->active = false;
+                }
             }
-
-            // 重新提交读取请求（如果是周期性定时器）
-            if (handle->isrepeat)
-            {
-                IOuringOPData *opdata = new IOuringOPData(IOUring_OPType::OP_TimeOut, timer_fd);
-                _optaskqueue.enqueue(opdata);
-                _IOEventCV.notify_one();
-            }
-            else
-            {
-                _timers.Erase(timer_fd);
-            }
+            _timers.Erase(timer_fd);
         }
     }
     else if (opdata->OP_Type == IOUring_OPType::OP_Coroutine)
@@ -558,58 +529,50 @@ CoroutineScheduler *CoroutineScheduler::Instance()
     return m_instance;
 }
 
-std::weak_ptr<CoTimer::Handle> CoroutineScheduler::create_timer(std::chrono::milliseconds interval, bool periodic)
+std::shared_ptr<CoTimer::Handle> CoroutineScheduler::create_timer(std::chrono::milliseconds interval)
 {
     int timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
     if (timer_fd < 0)
     {
-        return std::weak_ptr<CoTimer::Handle>();
+        return std::shared_ptr<CoTimer::Handle>(nullptr);
     }
 
-    struct itimerspec new_value;
-    new_value.it_value.tv_sec = interval.count() / 1000;
-    new_value.it_value.tv_nsec = (interval.count() % 1000) * 1000000;
+    struct itimerspec timerspec;
+    timerspec.it_value.tv_sec = interval.count() / 1000;
+    timerspec.it_value.tv_nsec = (interval.count() % 1000) * 1000000;
+    timerspec.it_interval.tv_sec = 0;
+    timerspec.it_interval.tv_nsec = 0;
 
-    if (periodic)
-    {
-        new_value.it_interval = new_value.it_value;
-    }
-    else
-    {
-        new_value.it_interval.tv_sec = 0;
-        new_value.it_interval.tv_nsec = 0;
-    }
-
-    if (timerfd_settime(timer_fd, 0, &new_value, nullptr) < 0)
+    if (timerfd_settime(timer_fd, 0, &timerspec, nullptr) < 0)
     {
         close(timer_fd);
-        return std::weak_ptr<CoTimer::Handle>();
+        return std::shared_ptr<CoTimer::Handle>(nullptr);
     }
 
     auto handle = std::make_shared<CoTimer::Handle>();
     handle->timer_fd = timer_fd;
-    handle->expiration_count = 0;
     handle->active = true;
-    handle->isrepeat = periodic;
+    handle->wakeresult = CoTimer::WakeType::RUNNING;
 
     if (!_timers.Insert(timer_fd, handle))
-        return std::weak_ptr<CoTimer::Handle>();
+        return std::shared_ptr<CoTimer::Handle>(nullptr);
 
     IOuringOPData *opdata = new IOuringOPData(IOUring_OPType::OP_TimeOut, timer_fd);
     // 提交读取定时器的SQE
     _optaskqueue.enqueue(opdata);
     _IOEventCV.notify_one();
 
-    return std::weak_ptr<CoTimer::Handle>(handle);
+    return handle;
 }
 
 // 立即唤醒定时器
-void CoroutineScheduler::wake_timer(std::weak_ptr<CoTimer::Handle> weakhandle)
+void CoroutineScheduler::wake_timer(std::shared_ptr<CoTimer::Handle> handle)
 {
-    auto handle = weakhandle.lock();
-
     if (!handle || !handle->active)
         return;
+
+    auto expected = CoTimer::WakeType::RUNNING;
+    handle->wakeresult.compare_exchange_strong(expected, CoTimer::WakeType::MANUAL_WAKE);
 
     // 设置定时器立即触发
     struct itimerspec new_value;
@@ -735,4 +698,18 @@ CoConnection::~CoConnection() {}
 CoConnection::Awaiter CoConnection::operator co_await()
 {
     return CoConnection::Awaiter(fd, addr);
+}
+
+CoTimer::Handle::Handle()
+    : wakeresult(CoTimer::WakeType::RUNNING), timer_fd(-1), active(false)
+{
+}
+
+CoTimer::Handle::~Handle()
+{
+    if (timer_fd > 0)
+    {
+        close(timer_fd);
+        timer_fd = -1;
+    }
 }

@@ -183,7 +183,7 @@ public:
 		{
 			return false;
 		}
-		t =_queue.front();
+		t = _queue.front();
 		return true;
 	}
 	// 查看队列尾元素
@@ -214,7 +214,21 @@ private:
 
 public:
 	SafeArray() {}
-	SafeArray(SafeArray &&other) { _array = other._array; }
+	SafeArray(SafeArray &&other)
+	{
+		std::lock_guard<CriticalSectionLock> lock(other._lock);
+		_array = std::move(other._array);
+	}
+	SafeArray(const SafeArray &other)
+	{
+		std::lock_guard<CriticalSectionLock> lock(other._lock);
+		_array = other._array;
+	}
+	SafeArray &operator=(const SafeArray &other)
+	{
+		std::lock_guard<CriticalSectionLock> lock(other._lock);
+		_array = other._array;
+	}
 	~SafeArray() {}
 	void clear()
 	{
@@ -234,11 +248,13 @@ public:
 		return result;
 	}
 	// 数组添加元素
-	void emplace(T &t)
+	template <typename... Args>
+	void emplace(Args &&...args)
 	{
 		std::lock_guard<CriticalSectionLock> lock(_lock);
-		_array.emplace_back(t);
+		_array.emplace_back(std::forward<Args>(args)...);
 	}
+
 	// 数组访问元素
 	bool getIndexElement(size_t index, T &t)
 	{
@@ -260,6 +276,26 @@ public:
 		}
 		_array.erase(_array.begin() + index);
 		return true;
+	}
+
+	T &operator[](size_t index)
+	{
+		std::lock_guard<CriticalSectionLock> lock(_lock);
+		if (index >= _array.size())
+		{
+			throw std::out_of_range("SafeArray index out of range");
+		}
+		return _array[index];
+	}
+
+	const T &operator[](size_t index) const
+	{
+		std::lock_guard<CriticalSectionLock> lock(_lock);
+		if (index >= _array.size())
+		{
+			throw std::out_of_range("SafeArray index out of range");
+		}
+		return _array[index];
 	}
 
 	void EnsureCall(std::function<void(std::vector<T> &array)> callback)
