@@ -7,7 +7,12 @@
 #include "ResourcePool.h"
 #include "ThreadPool.h"
 
-#define ENTRIES 30000
+#include "Session/SessionListener.h"
+#include "Session/BaseNetWorkSession.h"
+#include "EndPoint/TCPEndPoint.h"
+#include "EndPoint/TcpEndPointListener.h"
+
+#define ENTRIES 15000
 
 #define RECVBUFFERMINLEN 1024
 #define RECVBUFFERDEFLEN 1024 * 5
@@ -139,6 +144,8 @@ private:
         void SubmitExcuteEvent(std::shared_ptr<ExcuteEvent> event);
         void NotifyDone();
         void GetPostExcuteEvent(std::vector<std::shared_ptr<ExcuteEvent>> &out);
+        bool Active();
+        void SetActive(bool value);
 
     private:
         IOuringCoreProcessImpl *_core;
@@ -146,6 +153,7 @@ private:
         CriticalSectionLock _lock;
         SafeQueue<std::shared_ptr<ExcuteEvent>> _queue;
         excutestate _state;
+        bool _active;
     };
 
     // 动态缓冲区管理,用于动态调整连接的缓冲区以适应突发的流量
@@ -574,7 +582,7 @@ IOuringCoreProcessImpl::SequentialEventExecutor::ExcuteEvent::CreateRDHUP(std::s
 IOuringCoreProcessImpl::SequentialEventExecutor::SequentialEventExecutor(
     IOuringCoreProcessImpl *core,
     std::shared_ptr<NetCore_IOuringData> &data)
-    : _core(core), _weakdata(data), _state(excutestate::idle)
+    : _core(core), _weakdata(data), _state(excutestate::idle), _active(true)
 {
 }
 
@@ -666,6 +674,16 @@ void IOuringCoreProcessImpl::SequentialEventExecutor::GetPostExcuteEvent(std::ve
     }
 }
 
+bool IOuringCoreProcessImpl::SequentialEventExecutor::Active()
+{
+    return _active;
+}
+
+void IOuringCoreProcessImpl::SequentialEventExecutor::SetActive(bool value)
+{
+    _active = value;
+}
+
 IOuringCoreProcessImpl::DynamicBufferState::DynamicBufferState()
 {
     lastbuffersize = RECVBUFFERDEFLEN;
@@ -717,7 +735,20 @@ int IOuringCoreProcessImpl::Run()
     {
         _isrunning = true;
         _shouldshutdown = false;
-        if (shutdown_eventfd > 0 && _isinitsuccess)
+        if (!_isinitsuccess)
+        {
+            memset(&ring, 0, sizeof(ring));
+            int ret = io_uring_queue_init(ENTRIES, &ring, 0);
+            if (ret < 0)
+            {
+                perror("io_uring_queue_init fail!");
+                return -1;
+            }
+            else
+                _isinitsuccess = true;
+        }
+
+        if (shutdown_eventfd > 0)
         {
             uint64_t value = 0;
             ssize_t n = read(shutdown_eventfd, &value, sizeof(value));
@@ -1137,8 +1168,12 @@ int IOuringCoreProcessImpl::EventProcess(IOuringOPData *opdata, std::vector<IOur
             std::shared_ptr<NetCore_IOuringData> iodata;
             if (_IOUringData.Find(Con.get(), iodata) && iodata && iodata->recver)
             {
-                auto rdhupevent = SequentialEventExecutor::ExcuteEvent::CreateRDHUP(iodata);
-                iodata->recver->SubmitExcuteEvent(rdhupevent);
+                if (iodata->recver->Active())
+                {
+                    iodata->recver->SetActive(false);
+                    auto rdhupevent = SequentialEventExecutor::ExcuteEvent::CreateRDHUP(iodata);
+                    iodata->recver->SubmitExcuteEvent(rdhupevent);
+                }
             }
             else
             {
@@ -1153,8 +1188,12 @@ int IOuringCoreProcessImpl::EventProcess(IOuringOPData *opdata, std::vector<IOur
         std::shared_ptr<NetCore_IOuringData> iodata;
         if (_IOUringData.Find(Con.get(), iodata) && iodata && iodata->recver)
         {
-            auto rdhupevent = SequentialEventExecutor::ExcuteEvent::CreateRDHUP(iodata);
-            iodata->recver->SubmitExcuteEvent(rdhupevent);
+            if (iodata->recver->Active())
+            {
+                iodata->recver->SetActive(false);
+                auto rdhupevent = SequentialEventExecutor::ExcuteEvent::CreateRDHUP(iodata);
+                iodata->recver->SubmitExcuteEvent(rdhupevent);
+            }
         }
         else
         {
@@ -1202,8 +1241,11 @@ int IOuringCoreProcessImpl::EventProcess(IOuringOPData *opdata, std::vector<IOur
                 iodata->state->Update(bufferlen);
                 Buffer &buf = opdata->buffer;
                 Buffer buffer(buf.Byte(), bufferlen);
-                auto readevent = SequentialEventExecutor::ExcuteEvent::CreateReadEvent(iodata, buffer);
-                iodata->recver->SubmitExcuteEvent(readevent);
+                if (iodata->recver->Active())
+                {
+                    auto readevent = SequentialEventExecutor::ExcuteEvent::CreateReadEvent(iodata, buffer);
+                    iodata->recver->SubmitExcuteEvent(readevent);
+                }
             }
 
             iodata->NotifyIOEventDone(opdata);
@@ -1221,8 +1263,11 @@ int IOuringCoreProcessImpl::EventProcess(IOuringOPData *opdata, std::vector<IOur
             if (client_fd > 0 && Con->GetNetType() == NetType::Listener)
             {
                 sockaddr_in client_addr = opdata->client_addr;
-                auto acceptevent = SequentialEventExecutor::ExcuteEvent::CreateAcceptEvent(iodata, client_fd, client_addr);
-                iodata->recver->SubmitExcuteEvent(acceptevent);
+                if (iodata->recver->Active())
+                {
+                    auto acceptevent = SequentialEventExecutor::ExcuteEvent::CreateAcceptEvent(iodata, client_fd, client_addr);
+                    iodata->recver->SubmitExcuteEvent(acceptevent);
+                }
             }
             iodata->NotifyIOEventDone(opdata);
             auto acceptop = IOuringOPData::CreateAcceptOP(Con);
@@ -1305,15 +1350,15 @@ void IOuringCoreProcessImpl::DoPostExcuteEvents(std::vector<std::shared_ptr<Sequ
                 if (event->type == SequentialEventExecutor::ExcuteEvent::EventType::READ_DATA)
                 {
                     Buffer &buf = *(event->data);
-                    connection->OnREAD(connection->GetFd(),
-                                       buf);
+                    connection->READ(connection->GetFd(),
+                                     buf);
                 }
                 else if (event->type == SequentialEventExecutor::ExcuteEvent::EventType::ACCEPT_CONNECTION)
-                    connection->OnACCEPT(connection->GetFd(),
-                                         event->accept_info.client_fd, event->accept_info.client_addr);
+                    connection->ACCEPT(connection->GetFd(),
+                                       event->accept_info.client_fd, event->accept_info.client_addr);
                 else if (event->type == SequentialEventExecutor::ExcuteEvent::EventType::READ_HUP)
                 {
-                    connection->OnRDHUP();
+                    connection->RDHUP();
                 }
             }
         }
@@ -1380,6 +1425,36 @@ bool IOuringCoreProcessImpl::SubmitWillWriteEvent(IOuringOPData *opdata)
     return true;
 }
 
+bool isNetObjectAndOnCallBack(DeleteLaterImpl *ptr)
+{
+    if (BaseNetWorkSession *Session = dynamic_cast<BaseNetWorkSession *>(ptr))
+    {
+        if (auto EndPoint = Session->GetBaseClient())
+        {
+            if (auto BaseCon = EndPoint->GetBaseCon())
+            {
+                bool result = BaseCon->isOnCallback();
+                return result;
+            }
+        }
+    }
+
+    if (TCPEndPoint *EndPoint = dynamic_cast<TCPEndPoint *>(ptr))
+    {
+        if (auto BaseCon = EndPoint->GetBaseCon())
+        {
+            return BaseCon->isOnCallback();
+        }
+    }
+
+    if (BaseTransportConnection *BaseCon = dynamic_cast<BaseTransportConnection *>(ptr))
+    {
+        return BaseCon->isOnCallback();
+    }
+
+    return false;
+}
+
 void IOuringCoreProcessImpl::ProcessPendingDeletions()
 {
     std::vector<DeleteLaterImpl *> deletions;
@@ -1392,6 +1467,16 @@ void IOuringCoreProcessImpl::ProcessPendingDeletions()
     );
     for (auto ptr : deletions)
     {
+        if (ptr)
+        {
+            // 由于线程池是异步回调,所以这里删除的时候需要检查是否在执行回调
+            // 回调中的连接，退避处理
+            if (isNetObjectAndOnCallBack(ptr))
+            {
+                _pendingDeletions.emplace(ptr);
+                continue;
+            }
+        }
         SAFE_DELETE(ptr);
     }
 }

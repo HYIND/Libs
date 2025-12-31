@@ -2,6 +2,7 @@
 
 #include "Core/TCPTransportWarpper.h"
 #include "Coroutine.h"
+#include "Core/DeleteLater.h"
 
 enum class TCPNetProtocol
 {
@@ -19,7 +20,7 @@ enum class CheckHandshakeStatus
 };
 
 // TCP终端
-class TCPEndPoint
+class TCPEndPoint : public DeleteLaterImpl
 {
 public:
     EXPORT_FUNC TCPEndPoint();
@@ -63,27 +64,4 @@ protected:
 
     CoTimer *_handshaketimeout;
     CriticalSectionLock _Colock;
-};
-
-// 用于监听指定协议的TCP连接，用于校验连接协议
-class TcpProtocolListener
-{
-public:
-    EXPORT_FUNC TcpProtocolListener(TCPNetProtocol proto = TCPNetProtocol::PureTCP);
-    EXPORT_FUNC ~TcpProtocolListener();
-
-    EXPORT_FUNC TCPNetProtocol Protocol();
-    EXPORT_FUNC void SetProtocol(const TCPNetProtocol &proto);
-    EXPORT_FUNC bool Listen(const std::string &IP, int Port);
-    EXPORT_FUNC void BindEstablishConnectionCallBack(std::function<void(TCPEndPoint *)> callback);
-
-private:
-    EXPORT_FUNC void RecvCon(std::shared_ptr<TCPTransportConnection> waitCon);
-    EXPORT_FUNC void Handshake(TCPTransportConnection *waitCon, Buffer *buf);
-
-private:
-    std::shared_ptr<TCPTransportListener> BaseListener;
-    TCPNetProtocol _Protocol;
-    std::function<void(TCPEndPoint *)> _callBackEstablish;
-    SafeArray<TCPEndPoint *> waitClients; // 等待校验协议的客户端
 };

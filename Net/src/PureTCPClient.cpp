@@ -41,6 +41,7 @@ Task<bool> PureTCPClient::ConnectAsync(const std::string &IP, uint16_t Port)
 
 bool PureTCPClient::Release()
 {
+    std::lock_guard<SpinLock> lock(_ProcessLock);
     cacheBuffer.Release();
     return Base::Release();
 }

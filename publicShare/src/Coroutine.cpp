@@ -15,7 +15,7 @@
         x = nullptr;   \
     }
 
-#define ENTRIES 10000
+#define ENTRIES 3000
 
 static int shutdown_eventfd = -1;
 

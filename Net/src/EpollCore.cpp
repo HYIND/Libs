@@ -261,7 +261,7 @@ int EpollCoreProcessImpl::EventProcess(std::shared_ptr<NetCore_EpollData> &data,
 	if (events & EPOLLRDHUP)
 	{
 		DelNetFd(Con.get());
-		Con->OnRDHUP();
+		Con->RDHUP();
 		return 0;
 	}
 	else
@@ -270,7 +270,7 @@ int EpollCoreProcessImpl::EventProcess(std::shared_ptr<NetCore_EpollData> &data,
 		{
 			try
 			{
-				Con->OnREAD(fd);
+				Con->READ(fd);
 			}
 			catch (const std::exception &e)
 			{

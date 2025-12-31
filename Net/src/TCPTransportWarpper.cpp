@@ -37,7 +37,8 @@ int NewClientSocket(const std::string &IP, uint16_t socket_port, __socket_type p
 	return socket_fd;
 }
 
-BaseTransportConnection::BaseTransportConnection(SocketType type, bool isclient) : _type(type), _isclient(isclient)
+BaseTransportConnection::BaseTransportConnection(SocketType type, bool isclient)
+	: _type(type), _isclient(isclient), _OnRDHUPCount(0), _OnREADCount(0), _OnACCEPTCount(0)
 {
 }
 std::shared_ptr<BaseTransportConnection> BaseTransportConnection::GetBaseShared()
@@ -61,6 +62,74 @@ NetType BaseTransportConnection::GetNetType() { return _isclient ? NetType::Clie
 bool BaseTransportConnection::ValidSocket()
 {
 	return this->_fd > 0;
+}
+
+bool BaseTransportConnection::isOnCallback()
+{
+	return _OnRDHUPCount.load(std::memory_order_relaxed) > 0 ||
+		   _OnREADCount.load(std::memory_order_relaxed) > 0 ||
+		   _OnACCEPTCount.load(std::memory_order_relaxed) > 0;
+}
+
+void BaseTransportConnection::RDHUP()
+{
+	_OnRDHUPCount.fetch_add(1, std::memory_order_relaxed);
+	try
+	{
+		OnRDHUP();
+	}
+	catch (const std::exception &e)
+	{
+	}
+	_OnRDHUPCount.fetch_sub(1, std::memory_order_relaxed);
+}
+void BaseTransportConnection::READ(int fd)
+{
+	_OnREADCount.fetch_add(1, std::memory_order_relaxed);
+	try
+	{
+		OnREAD(fd);
+	}
+	catch (const std::exception &e)
+	{
+	}
+	_OnREADCount.fetch_sub(1, std::memory_order_relaxed);
+}
+void BaseTransportConnection::READ(int fd, Buffer &buf)
+{
+	_OnREADCount.fetch_add(1, std::memory_order_relaxed);
+	try
+	{
+		OnREAD(fd, buf);
+	}
+	catch (const std::exception &e)
+	{
+	}
+	_OnREADCount.fetch_sub(1, std::memory_order_relaxed);
+}
+void BaseTransportConnection::ACCEPT(int fd)
+{
+	_OnACCEPTCount.fetch_add(1, std::memory_order_relaxed);
+	try
+	{
+		OnACCEPT(fd);
+	}
+	catch (const std::exception &e)
+	{
+	}
+	_OnACCEPTCount.fetch_sub(1, std::memory_order_relaxed);
+}
+void BaseTransportConnection::ACCEPT(int fd, int newclient, sockaddr_in addr)
+{
+	_OnACCEPTCount.fetch_add(1, std::memory_order_relaxed);
+	try
+	{
+		OnACCEPT(fd, newclient, addr);
+	}
+	catch (const std::exception &e)
+	{
+	}
+	_OnACCEPTCount.fetch_sub(1, std::memory_order_relaxed);
 }
 
 TCPTransportListener::TCPTransportListener() : BaseTransportConnection(SocketType::TCP, false)
@@ -254,13 +323,23 @@ bool TCPTransportConnection::Release()
 		result = true;
 	}
 
-	Buffer *buf = nullptr;
-	while (_RecvDatas.dequeue(buf))
+	
+	{
+		std::lock_guard<SpinLock> processlock(_ProcessLock);
+		_callbackBuffer = nullptr;
+		Buffer *buf = nullptr;
+		while (_RecvDatas.dequeue(buf))
 		SAFE_DELETE(buf);
-	std::lock_guard<CriticalSectionLock> lock(_SendResMtx);
-	while (_SendDatas.dequeue(buf))
+	}
+	{
+		
+		std::lock_guard<CriticalSectionLock> sendlock(_SendResMtx);
+		Buffer *buf = nullptr;
+		while (_SendDatas.dequeue(buf))
 		SAFE_DELETE(buf);
-
+	}
+	_callbackRDHUP = nullptr;
+	
 	return result;
 }
 
