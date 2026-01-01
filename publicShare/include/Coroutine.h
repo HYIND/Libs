@@ -319,7 +319,7 @@ public:
     };
 
 public:
-    CoTimer(std::chrono::milliseconds timeout, bool periodic = false);
+    CoTimer(std::chrono::milliseconds timeout);
     ~CoTimer();
     Awaiter operator co_await(); // 协程等待操作
     void wake();                 // 立即唤醒
@@ -327,6 +327,9 @@ public:
 private:
     std::shared_ptr<Handle> handle;
 };
+
+Task<bool> CoSleep(std::chrono::milliseconds timeout);
+
 
 // 协程连接器包装器
 class CoConnection

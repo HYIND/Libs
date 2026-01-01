@@ -69,7 +69,7 @@ CoTimer::WakeType CoTimer::Awaiter::await_resume() noexcept
     return CoTimer::WakeType::Error;
 }
 
-CoTimer::CoTimer(std::chrono::milliseconds timeout, bool periodic)
+CoTimer::CoTimer(std::chrono::milliseconds timeout)
 {
     handle = CoroutineScheduler::Instance()->create_timer(timeout);
     if (!handle)
@@ -92,4 +92,9 @@ void CoTimer::wake()
 {
     if (handle)
         CoroutineScheduler::Instance()->wake_timer(handle);
+}
+
+Task<bool> CoSleep(std::chrono::milliseconds timeout)
+{
+    co_return co_await CoTimer(timeout) == CoTimer::WakeType::TIMEOUT;
 }
