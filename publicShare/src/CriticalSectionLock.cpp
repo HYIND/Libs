@@ -105,7 +105,7 @@ void ConditionVariable::Wait(CriticalSectionLock &lock)
 
 bool ConditionVariable::WaitFor(CriticalSectionLock &lock, const std::chrono::microseconds ms)
 {
-    _cv.wait_for(lock, ms);
+    return _cv.wait_for(lock, ms) == std::cv_status::timeout;
 }
 
 void ConditionVariable::NotifyAll()

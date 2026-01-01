@@ -49,7 +49,7 @@ public:
     template <class BoolFunc>
     bool WaitFor(CriticalSectionLock &lock, const std::chrono::microseconds ms, BoolFunc func)
     {
-        return _cv.wait_for(lock, ms, func);
+        return _cv.wait_for(lock, ms, func) == std::cv_status::timeout;
     }
 
     void NotifyAll();

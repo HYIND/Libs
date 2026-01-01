@@ -296,6 +296,56 @@ inline Task<void> TaskPromise<void>::get_return_object() noexcept
         TaskPromiseBase<void>::_syncwaitcv);
 }
 
+namespace CoroTask
+{
+    template <typename U>
+    struct is_task : std::false_type
+    {
+    };
+    template <typename T>
+    struct is_task<Task<T>> : std::true_type
+    {
+    };
+    template <typename T>
+    static constexpr bool is_task_v = is_task<T>::value;
+
+    template <typename T>
+    struct flatten_task
+    {
+        using type = T;
+    };
+
+    template <typename T>
+    struct flatten_task<Task<T>>
+    {
+        using type = T; // 展开一层
+    };
+
+    template <typename T>
+    using flatten_task_t = typename flatten_task<T>::type;
+
+    template <typename Callable>
+    static auto Run(Callable callable)
+        -> Task<flatten_task_t<decltype(callable())>>
+    {
+        using RawReturnType = decltype(callable());
+
+        if constexpr (is_task_v<RawReturnType>)
+        {
+            co_return co_await callable();
+        }
+        else if constexpr (std::is_void_v<RawReturnType>)
+        {
+            callable();
+            co_return;
+        }
+        else
+        {
+            co_return callable();
+        }
+    }
+}
+
 // 协程定时器包装器
 class CoTimer
 {

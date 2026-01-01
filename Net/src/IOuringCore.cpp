@@ -186,7 +186,6 @@ private:
     void Loop();
     bool GetDoneIOEvents(std::vector<IOuringOPData *> &opdatas);
     int EventProcess(IOuringOPData *opdata, std::vector<IOuringOPData *> &postOps);
-    void ThreadEnd();
     void ProcessPendingDeletions();
     bool AddReadShutDownEvent(IOuringOPData *opdata);
 
@@ -209,11 +208,11 @@ private:
     SafeArray<DeleteLaterImpl *> _pendingDeletions;
     ThreadPool _ExcuteEventProcessPool;
 
-    std::mutex _IOEventLock;
-    std::condition_variable _IOEventCV;
+    CriticalSectionLock _IOEventLock;
+    ConditionVariable _IOEventCV;
 
-    std::mutex _ExcuteLock;
-    std::condition_variable _ExcuteCV;
+    CriticalSectionLock _ExcuteLock;
+    ConditionVariable _ExcuteCV;
 
     CriticalSectionLock _doPostIOEventLock;
 };
@@ -417,7 +416,7 @@ void IOuringCoreProcessImpl::SequentialIOSubmitter::SubmitOPdata(IOuringOPData *
 
     if (_state == submitstate::idle)
     {
-        _core->_IOEventCV.notify_one();
+        _core->_IOEventCV.NotifyOne();
     }
 }
 
@@ -450,7 +449,7 @@ void IOuringCoreProcessImpl::SequentialIOSubmitter::NotifyDone(IOuringOPData *op
     }
     _state = submitstate::idle;
     if (!_queue.empty())
-        _core->_IOEventCV.notify_one();
+        _core->_IOEventCV.NotifyOne();
 }
 
 void IOuringCoreProcessImpl::SequentialIOSubmitter::NotifyRetry(IOuringOPData *opdata)
@@ -494,7 +493,7 @@ void IOuringCoreProcessImpl::SequentialIOSubmitter::NotifyRetry(IOuringOPData *o
 
     _state = submitstate::idle;
     if (!_queue.empty())
-        _core->_IOEventCV.notify_one();
+        _core->_IOEventCV.NotifyOne();
 }
 
 IOUring_OPType IOuringCoreProcessImpl::SequentialIOSubmitter::GetSubmitType()
@@ -613,7 +612,7 @@ void IOuringCoreProcessImpl::SequentialEventExecutor::SubmitExcuteEvent(std::sha
 
     if (_state == excutestate::idle)
     {
-        _core->_ExcuteCV.notify_one();
+        _core->_ExcuteCV.NotifyOne();
     }
 }
 
@@ -628,7 +627,7 @@ void IOuringCoreProcessImpl::SequentialEventExecutor::NotifyDone()
 
     _state = excutestate::idle;
     if (!_queue.empty())
-        _core->_ExcuteCV.notify_one();
+        _core->_ExcuteCV.NotifyOne();
 }
 
 void IOuringCoreProcessImpl::SequentialEventExecutor::GetPostExcuteEvent(std::vector<std::shared_ptr<ExcuteEvent>> &out)
@@ -929,30 +928,11 @@ void IOuringCoreProcessImpl::LoopSubmitIOEvent()
 
     if (!_isrunning || _shouldshutdown)
         return;
-    else
-    {
-        std::lock_guard<std::mutex> lock(_IOEventLock);
-        std::vector<IOuringOPData *> opdatas;
-        auto GetEvents = [&opdatas](std::map<BaseTransportConnection *, std::shared_ptr<IOuringCoreProcessImpl::NetCore_IOuringData>> &map) -> void
-        {
-            for (const auto &[Con, iodata] : map)
-            {
-                for (size_t i = 0; i < iodata->senders.size(); ++i)
-                {
-                    iodata->senders[i]->GetPostIOEvent(opdatas);
-                }
-            }
-        };
-        _IOUringData.EnsureCall(GetEvents);
-        if (opdatas.size() > 0)
-            DoPostIOEvents(opdatas);
-    }
 
-    while (_isrunning && !_shouldshutdown)
+    do
     {
-
-        std::unique_lock<std::mutex> lock(_IOEventLock);
-        _IOEventCV.wait_for(lock, std::chrono::milliseconds(50));
+        _IOEventLock.Enter();
+        _IOEventCV.WaitFor(_IOEventLock, std::chrono::milliseconds(50));
 
         if (_shouldshutdown || !_isrunning)
             break;
@@ -971,35 +951,18 @@ void IOuringCoreProcessImpl::LoopSubmitIOEvent()
         _IOUringData.EnsureCall(GetEvents);
         if (opdatas.size() > 0)
             DoPostIOEvents(opdatas);
-    }
+    } while ((_isrunning && !_shouldshutdown));
 }
 
 void IOuringCoreProcessImpl::LoopSubmitExcuteEvent()
 {
     if (!_isrunning || _shouldshutdown)
         return;
-    else
-    {
-        std::lock_guard<std::mutex> lock(_ExcuteLock);
-        std::vector<std::shared_ptr<SequentialEventExecutor::ExcuteEvent>> events;
-        auto GetEvents = [&events](std::map<BaseTransportConnection *, std::shared_ptr<IOuringCoreProcessImpl::NetCore_IOuringData>> &map) -> void
-        {
-            for (auto it = map.begin(); it != map.end(); it++)
-            {
-                auto &iodata = it->second;
-                iodata->recver->GetPostExcuteEvent(events);
-            }
-        };
-        _IOUringData.EnsureCall(GetEvents);
-        if (events.size() > 0)
-            DoPostExcuteEvents(events);
-    }
 
-    while (_isrunning && !_shouldshutdown)
+    do
     {
-
-        std::unique_lock<std::mutex> lock(_ExcuteLock);
-        _ExcuteCV.wait_for(lock, std::chrono::milliseconds(50));
+        _ExcuteLock.Enter();
+        _ExcuteCV.WaitFor(_ExcuteLock, std::chrono::milliseconds(50));
 
         if (_shouldshutdown || !_isrunning)
             break;
@@ -1016,7 +979,7 @@ void IOuringCoreProcessImpl::LoopSubmitExcuteEvent()
         _IOUringData.EnsureCall(GetEvents);
         if (events.size() > 0)
             DoPostExcuteEvents(events);
-    }
+    } while (_isrunning && !_shouldshutdown);
 }
 
 void IOuringCoreProcessImpl::Loop()
