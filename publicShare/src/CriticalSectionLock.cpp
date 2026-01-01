@@ -58,6 +58,11 @@ void CriticalSectionLock::Leave()
 
 #endif
 
+bool CriticalSectionLock::try_lock()
+{
+    return TryEnter();
+}
+
 void CriticalSectionLock::lock()
 {
     Enter();
@@ -91,4 +96,24 @@ LockGuard::~LockGuard()
 {
     if (_isownlock)
         _lock.Leave();
+}
+
+void ConditionVariable::Wait(CriticalSectionLock &lock)
+{
+    _cv.wait(lock);
+}
+
+bool ConditionVariable::WaitFor(CriticalSectionLock &lock, const std::chrono::microseconds ms)
+{
+    _cv.wait_for(lock, ms);
+}
+
+void ConditionVariable::NotifyAll()
+{
+    _cv.notify_all();
+}
+
+void ConditionVariable::NotifyOne()
+{
+    _cv.notify_one();
 }

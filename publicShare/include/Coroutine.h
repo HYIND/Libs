@@ -36,6 +36,7 @@ struct TaskPromiseBase
     std::coroutine_handle<> continuation_;
 
     std::shared_ptr<CriticalSectionLock> _continuationlock = std::make_shared<CriticalSectionLock>();
+    std::shared_ptr<ConditionVariable> _syncwaitcv = std::make_shared<ConditionVariable>();
 
     auto initial_suspend() noexcept
     {
@@ -53,7 +54,11 @@ struct TaskPromiseBase
                 LockGuard lock(*(promise->_continuationlock));
                 auto continuation = promise->continuation_;
                 if (continuation)
+                {
+                    promise->_syncwaitcv->NotifyAll();
                     return continuation;
+                }
+                promise->_syncwaitcv->NotifyAll();
                 return std::noop_coroutine();
             }
 
@@ -191,8 +196,8 @@ public:
     using promise_type = TaskPromise<T>;
     using value_type = T;
 
-    explicit Task(std::coroutine_handle<promise_type> coroutine, std::shared_ptr<CriticalSectionLock> lock) noexcept
-        : coroutine_(coroutine), _continuationlock(lock) {}
+    explicit Task(std::coroutine_handle<promise_type> coroutine, std::shared_ptr<CriticalSectionLock> lock, std::shared_ptr<ConditionVariable> cv) noexcept
+        : coroutine_(coroutine), _continuationlock(lock), _syncwaitcv(cv) {}
 
     Task(Task &&other) noexcept
         : coroutine_(std::exchange(other.coroutine_, nullptr)), _continuationlock(other._continuationlock) {}
@@ -224,10 +229,13 @@ public:
     {
         if (coroutine_)
         {
-            while (!coroutine_.done())
+            _continuationlock->lock();
+            if (coroutine_.done())
             {
-                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                _continuationlock->unlock();
+                return coroutine_.promise().result();
             }
+            _syncwaitcv->Wait(*_continuationlock);
             return coroutine_.promise().result();
         }
         throw std::runtime_error("Invalid task");
@@ -238,10 +246,14 @@ public:
     {
         if (coroutine_)
         {
-            while (!coroutine_.done())
+            _continuationlock->lock();
+            if (coroutine_.done())
             {
-                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                _continuationlock->unlock();
+                coroutine_.promise().result();
+                return;
             }
+            _syncwaitcv->Wait(*_continuationlock);
             coroutine_.promise().result();
             return;
         }
@@ -261,6 +273,7 @@ public:
 private:
     std::coroutine_handle<promise_type> coroutine_;
     std::shared_ptr<CriticalSectionLock> _continuationlock;
+    std::shared_ptr<ConditionVariable> _syncwaitcv;
 
     template <typename U>
     friend struct TaskPromise;
@@ -269,14 +282,18 @@ private:
 template <typename T>
 inline Task<T> TaskPromise<T>::get_return_object() noexcept
 {
-    return Task<T>{
-        std::coroutine_handle<TaskPromise<T>>::from_promise(*this), TaskPromiseBase<T>::_continuationlock};
+    return Task<T>(
+        std::coroutine_handle<TaskPromise<T>>::from_promise(*this),
+        TaskPromiseBase<T>::_continuationlock,
+        TaskPromiseBase<T>::_syncwaitcv);
 }
 
 inline Task<void> TaskPromise<void>::get_return_object() noexcept
 {
-    return Task<void>{
-        std::coroutine_handle<TaskPromise<void>>::from_promise(*this), TaskPromiseBase<void>::_continuationlock};
+    return Task<void>(
+        std::coroutine_handle<TaskPromise<void>>::from_promise(*this),
+        TaskPromiseBase<void>::_continuationlock,
+        TaskPromiseBase<void>::_syncwaitcv);
 }
 
 // 协程定时器包装器
@@ -329,7 +346,6 @@ private:
 };
 
 Task<bool> CoSleep(std::chrono::milliseconds timeout);
-
 
 // 协程连接器包装器
 class CoConnection
