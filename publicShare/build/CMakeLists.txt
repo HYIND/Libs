@@ -36,7 +36,10 @@ list(APPEND ALL_SRC_FILES
     ../src/ThreadPool.cpp
     ../src/ResourcePool.cpp
     ../src/Timer.cpp
-    ../src/Coroutine.cpp
+    ../src/CoroutineScheduler.cpp
+    ../src/CoroTask.cpp
+    ../src/CoroTimer.cpp
+    ../src/CoroConnection.cpp
 )
 
 ADD_LIBRARY(public SHARED ${ALL_SRC_FILES})

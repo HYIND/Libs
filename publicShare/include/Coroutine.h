@@ -2,18 +2,14 @@
 
 #include <memory>
 #include <coroutine>
-#include <chrono>
-#include <exception>
 #include <optional>
 #include <type_traits>
 #include <utility>
 #include "CriticalSectionLock.h"
 #include <netinet/in.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
 #include <atomic>
-
-void UnBindCoroutineThreadFromScheduler(std::coroutine_handle<> coroutine);
+#include <stdexcept>
+#include <thread>
 
 struct RegisterTaskAwaiter
 {
@@ -22,7 +18,14 @@ struct RegisterTaskAwaiter
     void await_resume();
 };
 
-// 前置声明
+struct TaskHandle
+{
+    std::coroutine_handle<> coroutine;
+
+    TaskHandle(std::coroutine_handle<> coroutine);
+    ~TaskHandle();
+};
+
 template <typename T>
 class Task;
 
@@ -48,8 +51,9 @@ struct TaskPromiseBase
             std::coroutine_handle<> await_suspend(std::coroutine_handle<> completed_coro) noexcept
             {
                 LockGuard lock(*(promise->_continuationlock));
-                if (promise->continuation_)
-                    return promise->continuation_;
+                auto continuation = promise->continuation_;
+                if (continuation)
+                    return continuation;
                 return std::noop_coroutine();
             }
 
@@ -180,7 +184,6 @@ struct TaskAwaiter
     }
 };
 
-// Task 类定义
 template <typename T>
 class Task
 {
@@ -188,58 +191,34 @@ public:
     using promise_type = TaskPromise<T>;
     using value_type = T;
 
-    // 从协程句柄构造
     explicit Task(std::coroutine_handle<promise_type> coroutine, std::shared_ptr<CriticalSectionLock> lock) noexcept
         : coroutine_(coroutine), _continuationlock(lock) {}
 
-    // 移动构造
     Task(Task &&other) noexcept
         : coroutine_(std::exchange(other.coroutine_, nullptr)), _continuationlock(other._continuationlock) {}
 
-    // 移动赋值
     Task &operator=(Task &&other) noexcept
     {
         if (this != &other)
         {
-            Release();
             coroutine_ = std::exchange(other.coroutine_, nullptr);
             _continuationlock = other._continuationlock;
         }
         return *this;
     }
 
-    // 禁止拷贝
     Task(const Task &) = delete;
     Task &operator=(const Task &) = delete;
 
     ~Task()
     {
-        Release();
     }
 
-    void Release()
-    {
-        if (coroutine_)
-        {
-            UnBindCoroutineThreadFromScheduler(coroutine_);
-            coroutine_.destroy();
-            coroutine_ = nullptr;
-        }
-    }
-
-    // 判断是否有效
-    explicit operator bool() const noexcept
-    {
-        return static_cast<bool>(coroutine_);
-    }
-
-    // 支持 co_await
     TaskAwaiter<T> operator co_await() const noexcept
     {
         return TaskAwaiter<T>{coroutine_, _continuationlock};
     }
 
-    // 同步等待结果
     template <typename U = T>
     std::enable_if_t<!std::is_void_v<U>, U> sync_wait()
     {
@@ -269,22 +248,11 @@ public:
         throw std::runtime_error("Invalid task");
     }
 
-    // 恢复协程执行
-    void resume()
-    {
-        if (coroutine_ && !coroutine_.done())
-        {
-            coroutine_.resume();
-        }
-    }
-
-    // 检查是否完成
     bool is_done() const noexcept
     {
         return !coroutine_ || coroutine_.done();
     }
 
-    // 获取内部协程句柄
     auto get_handle() const noexcept
     {
         return coroutine_;
@@ -294,12 +262,10 @@ private:
     std::coroutine_handle<promise_type> coroutine_;
     std::shared_ptr<CriticalSectionLock> _continuationlock;
 
-    // 友元声明
     template <typename U>
     friend struct TaskPromise;
 };
 
-// 定义 get_return_object
 template <typename T>
 inline Task<T> TaskPromise<T>::get_return_object() noexcept
 {
@@ -330,14 +296,14 @@ public:
         Handle();
         ~Handle();
 
-        int timer_fd;
+        int fd;
         bool active;
 
         std::coroutine_handle<> coroutine;
-        std::atomic<bool> corodone{false};
+        std::atomic<bool> corodone;
         CriticalSectionLock corolock;
 
-        std::atomic<WakeType> wakeresult;
+        std::atomic<WakeType> result;
     };
 
     struct Awaiter
@@ -345,11 +311,10 @@ public:
         Awaiter(std::shared_ptr<CoTimer::Handle> handle);
 
         bool await_ready() const noexcept;
-        void await_suspend(std::coroutine_handle<> h);
+        void await_suspend(std::coroutine_handle<> coro);
         WakeType await_resume() noexcept;
 
         std::shared_ptr<CoTimer::Handle> handle;
-        uint64_t expected_count;
         std::coroutine_handle<> coroutine;
     };
 
@@ -367,17 +332,33 @@ private:
 class CoConnection
 {
 public:
+    struct Handle
+    {
+        Handle();
+        ~Handle();
+
+        int fd;
+        sockaddr_in addr;
+
+        bool active;
+
+        std::coroutine_handle<> coroutine;
+        std::atomic<bool> corodone;
+        CriticalSectionLock corolock;
+
+        int res;
+    };
+
     struct Awaiter
     {
-        Awaiter(int fd, sockaddr_in addr);
+        Awaiter(std::shared_ptr<Handle> handle);
 
         bool await_ready();
         void await_suspend(std::coroutine_handle<> coro);
         int await_resume();
 
-        int fd;
-        sockaddr_in addr;
-        int res;
+        std::shared_ptr<Handle> handle;
+        std::coroutine_handle<> coroutine;
     };
 
 public:
@@ -386,6 +367,5 @@ public:
     Awaiter operator co_await();
 
 private:
-    int fd;
-    sockaddr_in addr;
+    std::shared_ptr<Handle> handle;
 };
