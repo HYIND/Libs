@@ -129,6 +129,21 @@ public:
 		}
 	}
 
+	void Lock()
+	{
+		_lock.Enter();
+	}
+
+	void UnLock()
+	{
+		_lock.Leave();
+	}
+
+	LockGuard MakeLockGuard()
+	{
+		return LockGuard(_lock);
+	}
+
 private:
 	std::map<K, V> _map;
 	CriticalSectionLock _lock;

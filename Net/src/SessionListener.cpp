@@ -50,7 +50,10 @@ NetWorkSessionListener::NetWorkSessionListener(SessionType type)
 NetWorkSessionListener::~NetWorkSessionListener()
 {
     if (CleanExpiredTask)
+    {
         CleanExpiredTask->Clean();
+        CleanExpiredTask = nullptr;
+    }
 }
 
 bool NetWorkSessionListener::Listen(const std::string &IP, int Port)

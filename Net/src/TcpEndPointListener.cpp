@@ -39,7 +39,10 @@ TcpEndPointListener::TcpEndPointListener(TCPNetProtocol proto) : _Protocol(proto
 TcpEndPointListener::~TcpEndPointListener()
 {
     if (CleanExpiredTask)
+    {
         CleanExpiredTask->Clean();
+        CleanExpiredTask = nullptr;
+    }
 }
 
 TCPNetProtocol TcpEndPointListener::Protocol()

@@ -254,7 +254,7 @@ int TimerProcessImpl::EventProcess(std::shared_ptr<TimerTask> &task, uint32_t ev
     }
     catch (const std::exception &e)
     {
-        std::cerr << "[TimerManager] Callback exception for '"
+        std::cerr << "[Timer] Callback exception for timername '"
                   << task->name() << "': " << e.what() << std::endl;
     }
 
