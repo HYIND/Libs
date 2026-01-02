@@ -337,7 +337,7 @@ enum class ParseDataFrameResult
 };
 ParseDataFrameResult GetDataFrameInfo(Buffer &input, WebSocketDataframe &info)
 {
-    if (input.Remaind() < 2)
+    if (input.Remain() < 2)
         return ParseDataFrameResult::IncompleteBuffer;
 
     // FIN, opcode
@@ -364,7 +364,7 @@ ParseDataFrameResult GetDataFrameInfo(Buffer &input, WebSocketDataframe &info)
         payload_length = len;
         */
 
-        if (input.Remaind() < 2)
+        if (input.Remain() < 2)
             return ParseDataFrameResult::IncompleteBuffer;
         uint16_t len = 0;
         uint8_t array[2] = {0};
@@ -374,7 +374,7 @@ ParseDataFrameResult GetDataFrameInfo(Buffer &input, WebSocketDataframe &info)
     }
     else if (info.length_type == 127)
     {
-        if (input.Remaind() < 8)
+        if (input.Remain() < 8)
             return ParseDataFrameResult::IncompleteBuffer;
         // if you don't have ntohll
         uint64_t len = 0;
@@ -395,7 +395,7 @@ ParseDataFrameResult GetDataFrameInfo(Buffer &input, WebSocketDataframe &info)
     // masking key
     if (info.mask == 1)
     {
-        if (input.Remaind() < 4)
+        if (input.Remain() < 4)
             return ParseDataFrameResult::IncompleteBuffer;
         input.Read((char *)info.masking_key, 4);
     }
@@ -427,7 +427,7 @@ int WebSocketAnalysisHelp::AnalysisDataframe(Buffer &input, WebSocketDataframe &
 {
     try
     {
-        int oripos = input.Postion();
+        int oripos = input.Position();
 
         ParseDataFrameResult result = GetDataFrameInfo(input, info);
         if (result != ParseDataFrameResult::ParseOK)
@@ -439,10 +439,10 @@ int WebSocketAnalysisHelp::AnalysisDataframe(Buffer &input, WebSocketDataframe &
                 return 0;
         }
         /*
-                std::cout << "WebSocketPacket: header size: " << input.Postion() - oripos
-                          << " info.payload_length: " << info.payload_length << " input.remaindSize: " << input.Remaind() << std::endl;
+                std::cout << "WebSocketPacket: header size: " << input.Position() - oripos
+                          << " info.payload_length: " << info.payload_length << " input.remaindSize: " << input.Remain() << std::endl;
          */
-        if (input.Remaind() < info.payload_length)
+        if (input.Remain() < info.payload_length)
         {
             // buffer size is not enough, so we continue recving data
             std::cout << "WebSocketPacket: AnalysisDataframe: IncompleteBuffer, continue recving data." << std::endl;
@@ -497,7 +497,7 @@ void AppendSignalDataFrameBufferFromPos(
     // set mask flag
     onebyte = onebyte | (mask << 7);
 
-    uint64_t payload_length = std::min(input.Remaind(), (uint64_t)WS_MAX_DATAFRAME_PAYLOAD_SIZE);
+    uint64_t payload_length = std::min(input.Remain(), (uint64_t)WS_MAX_DATAFRAME_PAYLOAD_SIZE);
     uint8_t length_type = Generate_length_type(payload_length);
     if (length_type < 126)
     {
@@ -573,7 +573,7 @@ bool WebSocketAnalysisHelp::GenerateDataFrameBuffer(
     if (opcode == 0x0 || opcode == 0x9 || opcode == 0xA || opcode == 0x8)
         return false;
 
-    int oriPos = input.Postion();
+    int oriPos = input.Position();
     input.Seek(0);
     output.Seek(0);
 
@@ -601,8 +601,8 @@ bool WebSocketAnalysisHelp::GenerateDataFrameBuffer(
     }
 
     input.Seek(oriPos);
-    if (output.Postion() != output.Length())
-        output.ReSize(output.Postion());
+    if (output.Position() != output.Length())
+        output.ReSize(output.Position());
     else
         output.Seek(0);
 
@@ -612,7 +612,7 @@ bool WebSocketAnalysisHelp::GenerateDataFrameBuffer(
 bool WebSocketAnalysisHelp::GenerateSpecialDataFrameBuffer(
     uint8_t opcode,
     Buffer &output,
-    Buffer *input = nullptr, uint8_t mask, MaskKey masking_key, uint8_t rsv1, uint8_t rsv2, uint8_t rsv3)
+    Buffer *input, uint8_t mask, MaskKey masking_key, uint8_t rsv1, uint8_t rsv2, uint8_t rsv3)
 {
     if (opcode != 0x9 && opcode != 0xA && opcode != 0x8)
         return false;
@@ -627,8 +627,8 @@ bool WebSocketAnalysisHelp::GenerateSpecialDataFrameBuffer(
 
     AppendSignalDataFrameBufferFromPos(buf, 0, opcode, mask, masking_key, rsv1, rsv2, rsv3, output);
 
-    if (output.Postion() != output.Length())
-        output.ReSize(output.Postion());
+    if (output.Position() != output.Length())
+        output.ReSize(output.Position());
     else
         output.Seek(0);
 

@@ -93,17 +93,17 @@ bool WebSocketClient::OnRecvBuffer(Buffer *buffer)
             return false;
     }
 
-    if (buffer->Remaind() > 0)
+    if (buffer->Remain() > 0)
         cacheBuffer.Append(*buffer);
 
-    while (cacheBuffer.Remaind() > 0)
+    while (cacheBuffer.Remain() > 0)
     {
         // 解析数据帧格式
         WebSocketDataframe dataFrame;
         int dataFameResult = WebSocketAnalysisHelp::AnalysisDataframe(cacheBuffer, dataFrame);
         if (dataFameResult == 1)
         {
-            cacheBuffer.Shift(cacheBuffer.Postion());
+            cacheBuffer.Shift(cacheBuffer.Position());
 
             // 数据帧解析成功，将payload追加到当前的cachePak的末尾
             // 取出payload

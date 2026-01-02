@@ -501,12 +501,12 @@ void TCPTransportConnection::ProcessRecvQueue()
 		if (!_RecvDatas.front(buf))
 			break;
 
-		int pos = buf->Postion();
+		int pos = buf->Position();
 		if (_callbackBuffer)
 			_callbackBuffer(this, buf);
 
 		// 该流已经被读取完毕
-		if (buf->Length() - buf->Postion() == 0)
+		if (buf->Length() - buf->Position() == 0)
 		{
 			_RecvDatas.dequeue(buf);
 			if (!ValidSocket())
@@ -516,7 +516,7 @@ void TCPTransportConnection::ProcessRecvQueue()
 		}
 
 		// 流未读取完毕，但Postion前后未发生变化，表示应用层暂不需要数据
-		if (pos == buf->Postion())
+		if (pos == buf->Position())
 			break;
 	}
 }

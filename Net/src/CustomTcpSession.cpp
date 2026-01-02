@@ -77,12 +77,12 @@ AnalysisResult AnalysisDataPackage(Buffer *buf, CustomPackage *outPak)
         return AnalysisResult::InputError;
     }
 
-    if (buf->Remaind() < sizeof(CustomTcpMsgHeader))
+    if (buf->Remain() < sizeof(CustomTcpMsgHeader))
     {
         return AnalysisResult::BufferAGAIN;
     }
 
-    int oriPos = buf->Postion();
+    int oriPos = buf->Position();
 
     CustomTcpMsgHeader header;
     buf->Read(&header, sizeof(CustomTcpMsgHeader));
@@ -90,15 +90,15 @@ AnalysisResult AnalysisDataPackage(Buffer *buf, CustomPackage *outPak)
     if (header.magic != CustomProtocolMagic)
         return AnalysisResult::MagicError;
 
-    if (buf->Remaind() < header.length)
+    if (buf->Remain() < header.length)
     {
         buf->Seek(oriPos);
         return AnalysisResult::BufferAGAIN;
     }
 
-    if (!CheckPakHeader(header, (uint8_t *)(buf->Byte() + buf->Postion()), header.length))
+    if (!CheckPakHeader(header, (uint8_t *)(buf->Byte() + buf->Position()), header.length))
     {
-        buf->Shift(buf->Postion() + header.length);
+        buf->Shift(buf->Position() + header.length);
         return AnalysisResult::ChecksumError;
     }
 
@@ -235,17 +235,17 @@ bool CustomTcpSession::OnRecvData(Buffer *buffer)
             return false;
     }
 
-    if (buffer->Remaind() > 0)
+    if (buffer->Remain() > 0)
         cacheBuffer.Append(*buffer);
 
-    while (cacheBuffer.Remaind() > 0)
+    while (cacheBuffer.Remain() > 0)
     {
         // 解析数据包
         AnalysisResult result = AnalysisDataPackage(&cacheBuffer, cachePak);
         if (result == AnalysisResult::Success)
         {
             // 数据包解析成功，获得完整Package
-            cacheBuffer.Shift(cacheBuffer.Postion());
+            cacheBuffer.Shift(cacheBuffer.Position());
 
             cachePak->buffer.Seek(0);
             CustomPackage *newPak = cachePak;

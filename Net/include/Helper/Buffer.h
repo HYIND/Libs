@@ -10,33 +10,30 @@
 #define EXPORT_FUNC
 #endif
 
-// #define min(a, b) \
-//     if (a <= b)   \
-//         return a; \
-//     else          \
-//         return b
-
 class Buffer
 {
 
 public:
     EXPORT_FUNC Buffer();
     EXPORT_FUNC Buffer(const Buffer &other);
+    EXPORT_FUNC Buffer(Buffer &&other);
     EXPORT_FUNC Buffer(const uint64_t length);
     EXPORT_FUNC Buffer(const char *source, uint64_t length);
     EXPORT_FUNC Buffer(const std::string &source);
     EXPORT_FUNC ~Buffer();
 
+    EXPORT_FUNC Buffer &operator=(const Buffer &other);
+    EXPORT_FUNC Buffer &operator=(Buffer &&other);
+
     EXPORT_FUNC void *Data() const;
     EXPORT_FUNC char *Byte() const;
     EXPORT_FUNC uint64_t Length() const;
-    EXPORT_FUNC uint64_t Postion() const;
-    EXPORT_FUNC uint64_t Remaind() const;
+    EXPORT_FUNC uint64_t Position() const;
+    EXPORT_FUNC uint64_t Remain() const;
 
     EXPORT_FUNC void CopyFromBuf(const char *buf, uint64_t length); // 拷贝
     EXPORT_FUNC void CopyFromBuf(const Buffer &other);
-    EXPORT_FUNC void QuoteFromBuf(char *buf, uint64_t length); // 以引用的形式占有一段内存
-    EXPORT_FUNC void QuoteFromBuf(Buffer &other);
+    EXPORT_FUNC void QuoteFromBuf(Buffer &other); // 以引用的形式占有一段内存,other重置
 
     /**
      * 以下读写操作均与pos相关，并引起相关流pos变化

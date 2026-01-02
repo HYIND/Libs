@@ -54,7 +54,7 @@ bool PureTCPClient::OnRecvBuffer(Buffer *buffer)
             return false;
     }
 
-    if (buffer->Remaind() > 0)
+    if (buffer->Remain() > 0)
         cacheBuffer.Append(*buffer);
 
     std::lock_guard<SpinLock> lock(_ProcessLock);

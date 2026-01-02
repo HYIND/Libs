@@ -12,6 +12,11 @@ Buffer::Buffer(const Buffer &other)
     CopyFromBuf(other);
 }
 
+Buffer::Buffer(Buffer &&other)
+{
+    QuoteFromBuf(other);
+}
+
 Buffer::Buffer(const uint64_t length)
 {
     _buf = new char[length + 1];
@@ -31,6 +36,22 @@ Buffer::Buffer(const std::string &str)
 Buffer::~Buffer()
 {
     Release();
+}
+
+Buffer &Buffer::operator=(const Buffer &other)
+{
+    if (this == &other)
+        return *this;
+    CopyFromBuf(other);
+    return *this;
+}
+
+Buffer &Buffer::operator=(Buffer &&other)
+{
+    if (this == &other)
+        return *this;
+    QuoteFromBuf(other);
+    return *this;
 }
 
 void Buffer::Release()
@@ -54,15 +75,16 @@ uint64_t Buffer::Length() const
     return _length;
 }
 
-uint64_t Buffer::Postion() const
+uint64_t Buffer::Position() const
 {
     return _pos;
 }
 
-uint64_t Buffer::Remaind() const
+uint64_t Buffer::Remain() const
 {
     return std::max((uint64_t)0, _length - _pos);
 }
+
 void Buffer::CopyFromBuf(const Buffer &other)
 {
     SAFE_DELETE_ARRAY(_buf);
@@ -81,15 +103,6 @@ void Buffer::CopyFromBuf(const char *buf, uint64_t length)
 
     _buf = new char[length + 1];
     memcpy(_buf, buf, length);
-    _length = length;
-    _pos = 0;
-}
-
-void Buffer::QuoteFromBuf(char *buf, uint64_t length)
-{
-    SAFE_DELETE_ARRAY(_buf);
-
-    _buf = buf;
     _length = length;
     _pos = 0;
 }
@@ -135,12 +148,12 @@ uint64_t Buffer::Write(const void *buf, const uint64_t length)
 
 uint64_t Buffer::Append(Buffer &other)
 {
-    return Append(other, other.Length() - other.Postion());
+    return Append(other, other.Length() - other.Position());
 }
 
 uint64_t Buffer::Append(Buffer &other, uint64_t length)
 {
-    uint64_t truthAppend = std::min(other.Length() - other.Postion(), length);
+    uint64_t truthAppend = std::min(other.Length() - other.Position(), length);
     if (truthAppend <= 0)
         return 0;
 
@@ -148,28 +161,28 @@ uint64_t Buffer::Append(Buffer &other, uint64_t length)
 
     if (_buf)
         memcpy(newBuf, _buf, _length);
-    memcpy(newBuf + _length, other.Byte() + other.Postion(), truthAppend);
+    memcpy(newBuf + _length, other.Byte() + other.Position(), truthAppend);
 
     SAFE_DELETE_ARRAY(_buf);
     _buf = newBuf;
     _length = _length + truthAppend;
 
-    other.Seek(other.Postion() + truthAppend);
+    other.Seek(other.Position() + truthAppend);
     return truthAppend;
 }
 
 uint64_t Buffer::WriteFromOtherBufferPos(Buffer &other)
 {
-    return WriteFromOtherBufferPos(other, other.Length() - other.Postion());
+    return WriteFromOtherBufferPos(other, other.Length() - other.Position());
 }
 
 uint64_t Buffer::WriteFromOtherBufferPos(Buffer &other, uint64_t length)
 {
-    uint64_t truthRead = std::min(other.Length() - other.Postion(), length);
+    uint64_t truthRead = std::min(other.Length() - other.Position(), length);
     if (truthRead <= 0)
         return 0;
-    Write((char *)other.Data() + other.Postion(), truthRead);
-    other.Seek(other.Postion() + truthRead);
+    Write((char *)other.Data() + other.Position(), truthRead);
+    other.Seek(other.Position() + truthRead);
     return truthRead;
 }
 

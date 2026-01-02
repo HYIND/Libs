@@ -272,7 +272,7 @@ public:
         static IODataManager *Instance = new IODataManager();
         return Instance;
     }
-    IODataManager::IODataManager() : ResPool(200, 1000)
+    IODataManager() : ResPool(200, 1000)
     {
     }
     void ResetData(IOuringOPData *data)
@@ -301,7 +301,7 @@ public:
 IOuringOPData *IOuringOPData::CreateWriteOP(std::shared_ptr<BaseTransportConnection> Con, Buffer &buf)
 {
     IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_WRITE, Con->GetFd(), Con, 0);
-    int oripos = buf.Postion();
+    int oripos = buf.Position();
     data->buffer.QuoteFromBuf(buf);
     data->buffer.Seek(oripos);
     return data;
@@ -434,7 +434,7 @@ void IOuringCoreProcessImpl::SequentialIOSubmitter::NotifyDone(IOuringOPData *op
 
     if (_type == IOUring_OPType::OP_WRITE)
     {
-        if (opdata->buffer.Remaind())
+        if (opdata->buffer.Remain())
         {
             // 上次传输未完全完成，创建新的IOuringOPData任务，然后放到队首，继续传输
             if (auto iodata = _weakdata.lock())
@@ -1170,7 +1170,7 @@ int IOuringCoreProcessImpl::EventProcess(IOuringOPData *opdata, std::vector<IOur
     case IOUring_OPType::OP_WRITE:
     {
         int bufferwrite = res;
-        opdata->buffer.Seek(opdata->buffer.Postion() + bufferwrite);
+        opdata->buffer.Seek(opdata->buffer.Position() + bufferwrite);
         std::shared_ptr<NetCore_IOuringData> iodata;
         if (_IOUringData.Find(Con.get(), iodata) && iodata)
         {
@@ -1358,7 +1358,7 @@ bool IOuringCoreProcessImpl::SubmitWriteEvent(IOuringOPData *opdata)
     if (!sqe)
         return false;
 
-    io_uring_prep_send(sqe, opdata->fd, opdata->buffer.Data() + opdata->buffer.Postion(), opdata->buffer.Remaind(), 0);
+    io_uring_prep_send(sqe, opdata->fd, opdata->buffer.Byte() + opdata->buffer.Position(), opdata->buffer.Remain(), 0);
     io_uring_sqe_set_data(sqe, (void *)opdata);
 
     return true;
@@ -1370,7 +1370,7 @@ bool IOuringCoreProcessImpl::SubmitReadEvent(IOuringOPData *opdata)
     if (!sqe)
         return false;
 
-    io_uring_prep_recv(sqe, opdata->fd, opdata->buffer.Data(), opdata->buffer.Length(), 0);
+    io_uring_prep_recv(sqe, opdata->fd, opdata->buffer.Byte(), opdata->buffer.Length(), 0);
     io_uring_sqe_set_data(sqe, (void *)opdata);
 
     return true;

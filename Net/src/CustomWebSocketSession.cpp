@@ -23,7 +23,7 @@ void AddPakHeader(Buffer *buf, CustomWSMsgHeader header)
     if (!buf)
         return;
     buf->Unshift(&header, 8);
-    buf->Seek(buf->Postion() + 8);
+    buf->Seek(buf->Position() + 8);
 }
 
 CustomWebSocketSession::CustomWebSocketSession(WebSocketClient *client)

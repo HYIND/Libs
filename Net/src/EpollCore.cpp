@@ -353,11 +353,11 @@ bool EpollCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> Base
 			count++;
 			continue;
 		}
-		size_t left = buffer->Length() - buffer->Postion();
+		size_t left = buffer->Length() - buffer->Position();
 
 		int result = 0;
 		// 如果有数据没有写完，则一直写数据
-		while ((result = ::send(fd, (char *)(buffer->Data()) + buffer->Postion(), left, MSG_NOSIGNAL)) > 0)
+		while ((result = ::send(fd, (char *)(buffer->Data()) + buffer->Position(), left, MSG_NOSIGNAL)) > 0)
 		{
 			if (result <= 0)
 			{
@@ -373,7 +373,7 @@ bool EpollCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> Base
 						continue;
 				}
 			}
-			buffer->Seek(buffer->Postion() + result);
+			buffer->Seek(buffer->Position() + result);
 			left -= result;
 		};
 

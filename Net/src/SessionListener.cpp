@@ -154,7 +154,7 @@ void NetWorkSessionListener::Handshake(TCPEndPoint *waitClient, Buffer *buf)
                         array.erase(it);
                         waitClient->BindMessageCallBack(std::bind(&BaseNetWorkSession::RecvData, session, std::placeholders::_1, std::placeholders::_2));
                         waitClient->BindCloseCallBack(std::bind(&BaseNetWorkSession::SessionClose, session, std::placeholders::_1));
-                        if (buf->Remaind() > 0)
+                        if (buf->Remain() > 0)
                             session->RecvData(base, buf);
                     }
                     if (result == CheckHandshakeStatus::BufferAgain)

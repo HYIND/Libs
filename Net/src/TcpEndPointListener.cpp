@@ -133,7 +133,7 @@ void TcpEndPointListener::Handshake(TCPTransportConnection *waitCon, Buffer *buf
                     array.erase(it);
                     waitCon->BindBufferCallBack(std::bind(&TCPEndPoint::RecvBuffer, client, std::placeholders::_1, std::placeholders::_2));
                     waitCon->BindRDHUPCallBack(std::bind(&TCPEndPoint::ConnectClose, client, std::placeholders::_1));
-                    if (buf->Remaind() > 0)
+                    if (buf->Remain() > 0)
                         client->RecvBuffer(waitCon, buf);
                 }
                 if (result == CheckHandshakeStatus::BufferAgain)
