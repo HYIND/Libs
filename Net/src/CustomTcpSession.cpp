@@ -18,6 +18,7 @@ struct CustomTcpMsgHeader
     uint32_t magic = CustomProtocolMagic;
     int seq = 0;
     int ack = -1;
+    uint8_t msgType = 0; // 0:null, 1:请求, 2:响应
     int length = 0;
     uint32_t checksum = 0xFFFFFFFF;
 
@@ -25,6 +26,8 @@ struct CustomTcpMsgHeader
     CustomTcpMsgHeader(int seq, int ack, int length)
         : seq(seq), ack(ack), length(length)
     {
+        if (ack != -1)
+            msgType = 2;
     }
 };
 
@@ -104,6 +107,7 @@ AnalysisResult AnalysisDataPackage(Buffer *buf, CustomPackage *outPak)
 
     outPak->seq = header.seq;
     outPak->ack = header.ack;
+    outPak->msgType = header.msgType;
     outPak->buffer.Append(*buf, header.length);
 
     return AnalysisResult::Success;
@@ -137,6 +141,8 @@ Task<bool> CustomTcpSession::ConnectAsync(const std::string &IP, uint16_t Port)
 
 bool CustomTcpSession::Release()
 {
+    _callbackRecvRequest = nullptr;
+
     bool result = Base::Release();
 
     CustomPackage *pak = nullptr;
@@ -191,7 +197,9 @@ bool CustomTcpSession::AwaitSend(const Buffer &buffer, Buffer &response)
             return false;
 
         Buffer buf(buffer);
-        AddPakHeader(&buf, CustomTcpMsgHeader(seq, -1, buffer.Length()));
+        CustomTcpMsgHeader header(seq, -1, buffer.Length());
+        header.msgType = 1;
+        AddPakHeader(&buf, header);
         if (BaseClient->Send(buf)) // 发送
         {
             std::unique_lock<std::mutex> awaitlck(task->_mtx);
@@ -293,13 +301,26 @@ void CustomTcpSession::ProcessPakage(CustomPackage *newPak)
 
     if (newPak)
     {
-        if (newPak->ack != -1)
+        if (_RecvPaks.size() > 300)
+        {
+            CustomPackage *pak = nullptr;
+            if (_RecvPaks.dequeue(pak))
+                SAFE_DELETE(pak);
+        }
+        _RecvPaks.enqueue(newPak);
+    }
+
+    int count = 10;
+    CustomPackage *pak = nullptr;
+    while (_RecvPaks.front(pak) && count > 0)
+    {
+        if (pak->ack != -1)
         {
             AwaitTask *task = nullptr;
-            if (_AwaitMap.Find(newPak->ack, task))
+            if (_AwaitMap.Find(pak->ack, task))
             {
                 if (task->respsonse)
-                    task->respsonse->CopyFromBuf(newPak->buffer);
+                    task->respsonse->CopyFromBuf(pak->buffer);
 
                 int count = 0;
                 while (!task->status == -1 && count < 5)
@@ -308,36 +329,48 @@ void CustomTcpSession::ProcessPakage(CustomPackage *newPak)
                     usleep(10 * 1000);
                 }
                 usleep(5 * 1000);
-                // printf("notify_all , pak->ack:%d\n", pak->ack);
                 task->_cv.notify_all();
             }
-            SAFE_DELETE(newPak);
+            _RecvPaks.dequeue(pak);
+            SAFE_DELETE(pak);
         }
         else
         {
-            if (_RecvPaks.size() > 300)
-            {
-                CustomPackage *pak = nullptr;
-                if (_RecvPaks.dequeue(pak))
-                    SAFE_DELETE(pak);
-            }
-            _RecvPaks.enqueue(newPak);
-        }
-    }
 
-    int count = 10;
-    CustomPackage *pak = nullptr;
-    while (_RecvPaks.dequeue(pak) && count > 0)
-    {
-        if (_callbackRecvData)
-        {
-            Buffer resposne;
-            _callbackRecvData(this, &pak->buffer, &resposne);
-            if (resposne.Length() > 0)
-                Send(resposne, pak->seq);
-            resposne.Release();
-            // _RecvPaks.dequeue(pak);
-            SAFE_DELETE(pak);
+            if (pak->msgType == 1)
+            {
+                if (_callbackRecvRequest)
+                {
+                    Buffer resposne;
+                    try
+                    {
+                        _callbackRecvRequest(this, &pak->buffer, &resposne);
+                    }
+                    catch (...)
+                    {
+                    }
+                    if (resposne.Length() > 0)
+                        Send(resposne, pak->seq);
+                    resposne.Release();
+                    _RecvPaks.dequeue(pak);
+                    SAFE_DELETE(pak);
+                }
+            }
+            else
+            {
+                if (_callbackRecvData)
+                {
+                    try
+                    {
+                        _callbackRecvData(this, &pak->buffer);
+                    }
+                    catch (...)
+                    {
+                    }
+                    _RecvPaks.dequeue(pak);
+                    SAFE_DELETE(pak);
+                }
+            }
         }
         count--;
     }
@@ -457,4 +490,27 @@ CheckHandshakeStatus CustomTcpSession::CheckHandshakeConfirmMsg(Buffer &buffer)
 PureTCPClient *CustomTcpSession::GetBaseClient()
 {
     return (PureTCPClient *)BaseClient;
+}
+
+void CustomTcpSession::BindRecvRequestCallBack(std::function<void(BaseNetWorkSession *, Buffer *recv, Buffer *resp)> callback)
+{
+    _callbackRecvRequest = callback;
+    OnBindRecvRequestCallBack();
+}
+
+void CustomTcpSession::OnBindRecvRequestCallBack()
+{
+    if (_ProcessLock.trylock())
+    {
+        try
+        {
+            ProcessPakage();
+        }
+        catch (const std::exception &e)
+        {
+            _ProcessLock.unlock();
+            std::cerr << e.what() << '\n';
+        }
+        _ProcessLock.unlock();
+    }
 }

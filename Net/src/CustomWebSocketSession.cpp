@@ -254,11 +254,7 @@ void CustomWebSocketSession::ProcessPakage(CustomWebSocketSessionPakage *newPak)
     {
         if (_callbackRecvData)
         {
-            Buffer resposne;
-            _callbackRecvData(this, &pak->buffer, &resposne);
-            if (resposne.Length() > 0)
-                Send(resposne, pak->seq);
-            resposne.Release();
+            _callbackRecvData(this, &pak->buffer);
             _RecvPaks.dequeue(pak);
             SAFE_DELETE(pak);
         }

@@ -64,7 +64,7 @@ bool BaseNetWorkSession::Release()
     return BaseClient->Release();
 }
 
-void BaseNetWorkSession::BindRecvDataCallBack(std::function<void(BaseNetWorkSession *, Buffer *recv, Buffer *response)> callback)
+void BaseNetWorkSession::BindRecvDataCallBack(std::function<void(BaseNetWorkSession *, Buffer *recv)> callback)
 {
     _callbackRecvData = callback;
     OnBindRecvDataCallBack();

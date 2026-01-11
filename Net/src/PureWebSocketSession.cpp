@@ -149,13 +149,9 @@ void PureWebSocketSession::ProcessPakage(PureWebSocketSessionPakage *newPak)
     {
         if (_callbackRecvData)
         {
-            Buffer resposne;
-            _callbackRecvData(this, &pak->buffer, &resposne);
+            _callbackRecvData(this, &pak->buffer);
             if (!isHandshakeComplete)
                 return;
-            if (resposne.Length() > 0)
-                Send(resposne);
-            resposne.Release();
             _RecvPaks.dequeue(pak);
             SAFE_DELETE(pak);
         }
