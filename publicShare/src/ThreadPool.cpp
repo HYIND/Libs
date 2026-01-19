@@ -53,6 +53,11 @@ void ThreadPool::stop()
     }
 }
 
+bool ThreadPool::running()
+{
+    return !_stop;
+}
+
 uint32_t ThreadPool::workersize()
 {
     return _threadscount;

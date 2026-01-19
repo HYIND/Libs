@@ -100,13 +100,14 @@ private:
 public:
     EXPORT_FUNC ThreadPool(uint32_t threads_num = 4);
 
-    EXPORT_FUNC ThreadPool(const ThreadPool &) = delete;
-    EXPORT_FUNC ThreadPool(ThreadPool &&) = delete;
-    EXPORT_FUNC ThreadPool &operator=(const ThreadPool &) = delete;
-    EXPORT_FUNC ThreadPool &operator=(ThreadPool &&) = delete;
+    ThreadPool(const ThreadPool &) = delete;
+    ThreadPool(ThreadPool &&) = delete;
+    ThreadPool &operator=(const ThreadPool &) = delete;
+    ThreadPool &operator=(ThreadPool &&) = delete;
 
     EXPORT_FUNC void start();
     EXPORT_FUNC void stop();
+    EXPORT_FUNC bool running();
     EXPORT_FUNC uint32_t workersize();
 
 private:
@@ -137,8 +138,11 @@ public:
         };
 
         auto &data = _threads[thread_id];
-        data->queue.enqueue(warpper_func);                                                  // 压入安全队列
-        data->cv.notify_one();                                                              // 唤醒一个等待中的线程
+        {
+            std::lock_guard<std::mutex> lock(data->mutex);
+            data->queue.enqueue(warpper_func);                                                  // 压入安全队列
+            data->cv.notify_one();                                                              // 唤醒一个等待中的线程
+        }
         return std::make_shared<ThreadPool::SubmitHandle<ReturnType>>(task_ptr, thread_id); // 返回Handle
     }
 

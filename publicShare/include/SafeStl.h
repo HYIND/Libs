@@ -218,6 +218,21 @@ public:
 		while (!_queue.empty())
 			_queue.pop();
 	}
+
+	void Lock()
+	{
+		_lock.Enter();
+	}
+
+	void UnLock()
+	{
+		_lock.Leave();
+	}
+
+	LockGuard MakeLockGuard()
+	{
+		return LockGuard(_lock);
+	}
 };
 
 template <typename T>
@@ -321,6 +336,21 @@ public:
 			callback(this->_array);
 		}
 	}
+
+	void Lock()
+	{
+		_lock.Enter();
+	}
+
+	void UnLock()
+	{
+		_lock.Leave();
+	}
+
+	LockGuard MakeLockGuard()
+	{
+		return LockGuard(_lock);
+	}
 };
 
 template <typename T>
@@ -396,5 +426,20 @@ public:
 	{
 		std::lock_guard<CriticalSectionLock> lock(_lock);
 		_deque.clear();
+	}
+
+	void Lock()
+	{
+		_lock.Enter();
+	}
+
+	void UnLock()
+	{
+		_lock.Leave();
+	}
+
+	LockGuard MakeLockGuard()
+	{
+		return LockGuard(_lock);
 	}
 };
