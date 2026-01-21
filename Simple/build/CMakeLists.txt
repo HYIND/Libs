@@ -37,31 +37,40 @@ if(NOT URING_LIB)
     message(FATAL_ERROR "uring library not found!")
 endif()
 
-add_executable(ServerSimple ../serverSimple.cpp)
+add_executable(EchoServerSimple ../EchoServerSimple.cpp)
 
-target_link_libraries(ServerSimple ${FMT_LIB})
-target_link_libraries(ServerSimple ${NET_LIB})
-target_link_libraries(ServerSimple ${PUBLIC_LIB})
-
-if(URING_LIB)
-    target_link_libraries(ServerSimple ${URING_LIB})
-endif()
-
-add_executable(ClientSimple ../clientSimple.cpp)
-
-target_link_libraries(ClientSimple ${FMT_LIB})
-target_link_libraries(ClientSimple ${NET_LIB})
-target_link_libraries(ClientSimple ${PUBLIC_LIB})
+target_link_libraries(EchoServerSimple ${FMT_LIB})
+target_link_libraries(EchoServerSimple ${NET_LIB})
+target_link_libraries(EchoServerSimple ${PUBLIC_LIB})
 
 if(URING_LIB)
-    target_link_libraries(ClientSimple ${URING_LIB})
+    target_link_libraries(EchoServerSimple ${URING_LIB})
 endif()
 
+add_executable(EchoClientSimple ../EchoClientSimple.cpp)
+
+target_link_libraries(EchoClientSimple ${FMT_LIB})
+target_link_libraries(EchoClientSimple ${NET_LIB})
+target_link_libraries(EchoClientSimple ${PUBLIC_LIB})
+
+if(URING_LIB)
+    target_link_libraries(EchoClientSimple ${URING_LIB})
+endif()
+
+add_executable(CoroutineSimple ../CoroutineSimple.cpp)
+
+target_link_libraries(CoroutineSimple ${FMT_LIB})
+target_link_libraries(CoroutineSimple ${NET_LIB})
+target_link_libraries(CoroutineSimple ${PUBLIC_LIB})
+
+if(URING_LIB)
+    target_link_libraries(CoroutineSimple ${URING_LIB})
+endif()
 
 set(CMAKE_BUILD_TYPE "Debug")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread -lfmt -fpermissive -fcoroutines -g")
 
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address  -fsanitize-recover=address -fno-stack-protector -fno-omit-frame-pointer -fno-var-tracking")
-# target_link_libraries(ServerSimple asan)
-# target_link_libraries(ClientSimple asan)
+# target_link_libraries(EchoServerSimple asan)
+# target_link_libraries(EchoClientSimple asan)
