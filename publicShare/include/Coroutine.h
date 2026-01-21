@@ -229,7 +229,7 @@ public:
     {
         if (coroutine_)
         {
-            LockGuard guard(_continuationlock);
+            LockGuard guard(*_continuationlock);
             if (coroutine_.done())
             {
                 return coroutine_.promise().result();
@@ -245,7 +245,7 @@ public:
     {
         if (coroutine_)
         {
-            LockGuard guard(_continuationlock);
+            LockGuard guard(*_continuationlock);
             if (coroutine_.done())
             {
                 coroutine_.promise().result();

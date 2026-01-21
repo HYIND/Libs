@@ -24,8 +24,8 @@ _deps
 [Dd]ebug
 [Rr]elease
 
-build/
-!CMakeLists.txt
+!build/CMakeLists.txt
+# build/
 
 .vscode
 .vs
