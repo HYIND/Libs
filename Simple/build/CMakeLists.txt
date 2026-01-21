@@ -67,6 +67,26 @@ if(URING_LIB)
     target_link_libraries(CoroutineSimple ${URING_LIB})
 endif()
 
+add_executable(ThreadPoolSimple ../ThreadPoolSimple.cpp)
+
+target_link_libraries(ThreadPoolSimple ${FMT_LIB})
+target_link_libraries(ThreadPoolSimple ${NET_LIB})
+target_link_libraries(ThreadPoolSimple ${PUBLIC_LIB})
+
+if(URING_LIB)
+    target_link_libraries(ThreadPoolSimple ${URING_LIB})
+endif()
+
+add_executable(TimerSimple ../TimerSimple.cpp)
+
+target_link_libraries(TimerSimple ${FMT_LIB})
+target_link_libraries(TimerSimple ${NET_LIB})
+target_link_libraries(TimerSimple ${PUBLIC_LIB})
+
+if(URING_LIB)
+    target_link_libraries(TimerSimple ${URING_LIB})
+endif()
+
 set(CMAKE_BUILD_TYPE "Debug")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread -lfmt -fpermissive -fcoroutines -g")
