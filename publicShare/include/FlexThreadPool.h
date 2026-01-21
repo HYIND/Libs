@@ -216,13 +216,15 @@ private:
 public:
     template <typename F, typename... Args>
     EXPORT_FUNC auto submit(F &&f, Args &&...args)
-        -> std::shared_ptr<FlexThreadPool::SubmitHandle<decltype(f(args...))>>
+        -> std::shared_ptr<FlexThreadPool::SubmitHandle<std::invoke_result_t<F, Args...>>>
     {
-        using ReturnType = decltype(f(args...));
-
-        std::function<ReturnType()> func = std::bind(std::forward<F>(f), std::forward<Args>(args)...);
-        // 封装为packaged_task以便异步操作
-        auto task_ptr = std::make_shared<std::packaged_task<ReturnType()>>(func);
+        using ReturnType = std::invoke_result_t<F, Args...>;
+        auto task_ptr = std::make_shared<std::packaged_task<ReturnType()>>(
+            [f = std::forward<F>(f),
+             ... args = std::forward<Args>(args)]() mutable
+            {
+                    return std::invoke(std::move(f), std::move(args)...);
+            });
 
         std::function<void()> warpper_func =
             [task_ptr]()
@@ -232,23 +234,7 @@ public:
 
         auto taskliveflag = CommitToAvailablieThread(warpper_func);
 
-        return std::make_shared<FlexThreadPool::SubmitHandle<ReturnType>>(task_ptr, taskliveflag); // 返回Handle
-    }
-
-    template <typename F, typename C, typename... Args>
-    EXPORT_FUNC auto submit(F &&f, C &&c, Args &&...args)
-        -> std::shared_ptr<FlexThreadPool::SubmitHandle<decltype((c->*f)(args...))>>
-    {
-        using ReturnType = decltype((c->*f)(args...));
-
-        auto func =
-            [c = std::forward<C>(c), f = std::forward<F>(f), ... args = std::forward<Args>(args)]() mutable
-            -> ReturnType
-        {
-            return (c->*f)(args...);
-        };
-
-        return submit(func);
+        return std::make_shared<FlexThreadPool::SubmitHandle<ReturnType>>(task_ptr, taskliveflag);
     }
 
 private:

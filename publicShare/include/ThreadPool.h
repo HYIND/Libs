@@ -218,21 +218,19 @@ private:
 public:
     template <typename F, typename... Args>
     EXPORT_FUNC auto submit_to(uint32_t thread_id, F &&f, Args &&...args) // 指定线程id
-        -> std::shared_ptr<ThreadPool::SubmitHandle<decltype(f(args...))>>
+        -> std::shared_ptr<ThreadPool::SubmitHandle<std::invoke_result_t<F, Args...>>>
     {
         if (thread_id >= _threads.size())
-        {
             throw std::out_of_range("Invalid thread id");
-        }
 
-        using ReturnType = decltype(f(args...));
+        using ReturnType = std::invoke_result_t<F, Args...>;
+        auto task_ptr = std::make_shared<std::packaged_task<ReturnType()>>(
+            [f = std::forward<F>(f),
+             ... args = std::forward<Args>(args)]() mutable
+            {
+                return std::invoke(std::move(f), std::move(args)...);
+            });
 
-        // 创建一个function
-        std::function<decltype(f(args...))()> func = std::bind(std::forward<F>(f), std::forward<Args>(args)...); // 连接函数和参数定义，特殊函数类型，避免左右值错误
-        // 封装为packaged_task以便异步操作
-        auto task_ptr = std::make_shared<std::packaged_task<ReturnType()>>(func);
-
-        // Warp packaged task into void function
         std::function<void()> warpper_func =
             [task_ptr]()
         {
@@ -244,37 +242,12 @@ public:
         return std::make_shared<ThreadPool::SubmitHandle<ReturnType>>(task_ptr, thread_id, taskliveflag); // 返回Handle
     }
 
-    template <typename F, typename C, typename... Args>
-    EXPORT_FUNC auto submit_to(uint32_t thread_id, F &&f, C &&c, Args &&...args) // 指定线程id
-        -> std::shared_ptr<ThreadPool::SubmitHandle<decltype((c->*f)(args...))>>
-    {
-
-        using ReturnType = decltype((c->*f)(args...));
-
-        auto func =
-            [c = std::forward<C>(c), f = std::forward<F>(f), ... args = std::forward<Args>(args)]() mutable
-            -> ReturnType
-        {
-            return (c->*f)(args...);
-        };
-
-        return submit_to(thread_id, func);
-    }
-
     template <typename F, typename... Args>
     EXPORT_FUNC auto submit(F &&f, Args &&...args) // 随机分配线程id
-        -> std::shared_ptr<ThreadPool::SubmitHandle<decltype(f(args...))>>
+        -> std::shared_ptr<ThreadPool::SubmitHandle<std::invoke_result_t<F, Args...>>>
     {
         uint32_t thread_id = GetAvailablieThread();
         return submit_to(thread_id, std::forward<F>(f), std::forward<Args>(args)...);
-    }
-
-    template <typename F, typename C, typename... Args>
-    EXPORT_FUNC auto submit(F &&f, C &&c, Args &&...args) // 随机分配线程id
-        -> std::shared_ptr<ThreadPool::SubmitHandle<decltype(f(args...))>>
-    {
-        uint32_t thread_id = GetAvailablieThread();
-        return submit_to(thread_id, std::forward<F>(f), std::forward<C>(c), std::forward<Args>(args)...);
     }
 
 private:
