@@ -34,6 +34,7 @@ list(APPEND ALL_SRC_FILES
     ../src/SpinLock.cpp
     ../src/RateLimiter.cpp
     ../src/ThreadPool.cpp
+    ../src/FlexThreadPool.cpp
     ../src/ResourcePool.cpp
     ../src/Timer.cpp
     ../src/CoroutineScheduler.cpp

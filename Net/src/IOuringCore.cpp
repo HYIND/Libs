@@ -931,8 +931,8 @@ void IOuringCoreProcessImpl::LoopSubmitIOEvent()
 
     do
     {
-        _IOEventLock.Enter();
-        _IOEventCV.WaitFor(_IOEventLock, std::chrono::milliseconds(50));
+        LockGuard guard(_IOEventLock);
+        _IOEventCV.WaitFor(guard, std::chrono::milliseconds(50));
 
         if (_shouldshutdown || !_isrunning)
             break;
@@ -961,8 +961,8 @@ void IOuringCoreProcessImpl::LoopSubmitExcuteEvent()
 
     do
     {
-        _ExcuteLock.Enter();
-        _ExcuteCV.WaitFor(_ExcuteLock, std::chrono::milliseconds(50));
+        LockGuard guard(_ExcuteLock);
+        _ExcuteCV.WaitFor(guard, std::chrono::milliseconds(50));
 
         if (_shouldshutdown || !_isrunning)
             break;

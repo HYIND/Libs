@@ -178,6 +178,11 @@ public:
 		std::lock_guard<CriticalSectionLock> lock(_lock);
 		_queue.emplace(t);
 	}
+	void enqueue(T &&t)
+	{
+		std::lock_guard<CriticalSectionLock> lock(_lock);
+		_queue.push(std::forward<T>(t));
+	}
 	// 队列取出元素
 	bool dequeue(T &t)
 	{

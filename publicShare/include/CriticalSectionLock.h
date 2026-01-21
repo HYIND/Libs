@@ -33,32 +33,6 @@ private:
 #endif
 };
 
-class ConditionVariable
-{
-public:
-    ConditionVariable() = default;
-    ~ConditionVariable() = default;
-
-    ConditionVariable(const ConditionVariable &) = delete;
-    ConditionVariable &operator=(const ConditionVariable &) = delete;
-    ConditionVariable(ConditionVariable &&) = delete;
-    ConditionVariable &operator=(ConditionVariable &&) = delete;
-
-    void Wait(CriticalSectionLock &lock);
-    bool WaitFor(CriticalSectionLock &lock, const std::chrono::microseconds ms);
-    template <class BoolFunc>
-    bool WaitFor(CriticalSectionLock &lock, const std::chrono::microseconds ms, BoolFunc func)
-    {
-        return _cv.wait_for(lock, ms, func) == std::cv_status::timeout;
-    }
-
-    void NotifyAll();
-    void NotifyOne();
-
-private:
-    std::condition_variable_any _cv;
-};
-
 class LockGuard
 {
 public:
@@ -71,7 +45,36 @@ public:
     LockGuard(LockGuard &&) = delete;
     LockGuard &operator=(LockGuard &&) = delete;
 
+    void lock();
+    void unlock();
+
 private:
     CriticalSectionLock &_lock;
     bool _isownlock;
+};
+
+class ConditionVariable
+{
+public:
+    ConditionVariable() = default;
+    ~ConditionVariable() = default;
+
+    ConditionVariable(const ConditionVariable &) = delete;
+    ConditionVariable &operator=(const ConditionVariable &) = delete;
+    ConditionVariable(ConditionVariable &&) = delete;
+    ConditionVariable &operator=(ConditionVariable &&) = delete;
+
+    void Wait(LockGuard &lock);
+    bool WaitFor(LockGuard &lock, const std::chrono::microseconds ms);
+    template <class BoolFunc>
+    bool WaitFor(LockGuard &lock, const std::chrono::microseconds ms, BoolFunc func)
+    {
+        return _cv.wait_for(lock, ms, func);
+    }
+
+    void NotifyAll();
+    void NotifyOne();
+
+private:
+    std::condition_variable_any _cv;
 };

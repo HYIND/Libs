@@ -1,61 +1,92 @@
 #include "ThreadPool.h"
+#include <assert.h>
+
+ThreadPool::ThreadData::ThreadTask::ThreadTask(std::function<void()> func)
+    : func(func)
+{
+    taskliveflag = std::make_shared<int>(0);
+}
 
 ThreadPool::ThreadPool(uint32_t threads_num)
-    : _stop(true), next_thread(0)
+    : _stop{true}, _threadscount(threads_num), next_thread(0)
 {
-    if (threads_num <= 0)
-        threads_num = std::thread::hardware_concurrency();
+    if (_threadscount <= 0)
+        _threadscount = std::thread::hardware_concurrency();
+    if (_threadscount < 0)
+        _threadscount = 1;
     _threads.reserve(threads_num);
-    _threadscount = threads_num;
+
+    for (int i = 0; i < _threadscount; ++i)
+    {
+        std::shared_ptr<ThreadData> data = std::make_shared<ThreadData>();
+        data->id = i;
+        data->_stop.store(true);
+        _threads.emplace_back(data);
+    }
 }
+
+ThreadPool::~ThreadPool()
+{
+    stop();
+}
+
 void ThreadPool::start()
 {
-    if (!_stop)
-        return;
-
-    _stop = false;
-    if (_threads.empty())
-    {
-        for (int i = 0; i < _threadscount; ++i)
-        {
-            std::shared_ptr<ThreadData> data = std::make_shared<ThreadData>();
-            data->id = i;
-            data->stop = false;
-            data->thread = std::thread(ThreadWorker(this, data)); // 分配工作线程
-            _threads.emplace_back(data);
-        }
-    }
-    else
+    bool expected = true;
+    if (_stop.compare_exchange_strong(expected, false))
     {
         for (int i = 0; i < _threads.size(); ++i)
         {
-            std::lock_guard<std::mutex> lock(_threads[i]->mutex);
-            _threads[i]->stop = false;
-            _threads[i]->thread = std::thread(ThreadWorker(this, _threads[i]));
+            auto &data = _threads[i];
+            data->_stop.store(false);
+            data->thread = std::thread(ThreadWorker(this, data));
         }
     }
 }
+
 void ThreadPool::stop()
 {
-    _stop = true;
-
-    for (int i = 0; i < _threads.size(); ++i) // 唤醒所有工作线程
+    bool expected = false;
+    if (_stop.compare_exchange_strong(expected, true))
     {
-        std::lock_guard<std::mutex> lock(_threads[i]->mutex);
-        _threads[i]->stop = true;
-        _threads[i]->cv.notify_all();
+        for (auto &data : _threads)
+        {
+            LockGuard guard(data->queue_mutex);
+            data->_stop.store(true);
+            data->queue_cv.NotifyAll();
+        }
+        for (auto &data : _threads)
+        {
+            if (data->thread.joinable())
+                data->thread.join();
+            data->queue.clear();
+        }
     }
-    for (int i = 0; i < _threads.size(); ++i)
+}
+
+void ThreadPool::stopnow()
+{
+    bool expected = false;
+    if (_stop.compare_exchange_strong(expected, true))
     {
-        if (_threads[i]->thread.joinable())
-            _threads[i]->thread.join();
-        _threads[i]->queue.clear();
+        for (auto &data : _threads)
+        {
+            LockGuard guard(data->queue_mutex);
+            data->_stop.store(true);
+            data->queue.clear();
+            data->queue_cv.NotifyAll();
+        }
+        for (auto &data : _threads)
+        {
+            if (data->thread.joinable())
+                data->thread.join();
+        }
     }
 }
 
 bool ThreadPool::running()
 {
-    return !_stop;
+    return !(_stop.load());
 }
 
 uint32_t ThreadPool::workersize()
@@ -63,35 +94,110 @@ uint32_t ThreadPool::workersize()
     return _threadscount;
 }
 
+std::weak_ptr<int> ThreadPool::CommitTask(uint32_t thread_id, std::function<void()> func)
+{
+    using ThreadTask = ThreadPool::ThreadData::ThreadTask;
+
+    auto task = std::make_unique<ThreadTask>(func);
+    auto taskliveflag = task->taskliveflag;
+
+    if (thread_id >= _threads.size())
+    {
+        throw std::out_of_range("Invalid thread id");
+    }
+
+    auto &data = _threads[thread_id];
+    {
+        LockGuard lock(data->queue_mutex);
+        data->queue.enqueue(std::move(task));
+        data->queue_cv.NotifyOne();
+    }
+
+    return std::weak_ptr<int>(taskliveflag);
+}
+
 uint32_t ThreadPool::GetAvailablieThread()
 {
-    uint32_t thread_id = next_thread.fetch_add(1, std::memory_order_relaxed) % _threads.size();
-    return thread_id;
+    int best_idle_index = -1;
+    int min_queue_size = INT32_MAX;
+
+    // 尝试找到最低负载的线程,负载是0则直接选中
+    for (uint32_t i = 0; i < _threads.size(); ++i)
+    {
+        auto &data = _threads[i];
+
+        int queuesize = data->queue.size();
+        if (queuesize == 0)
+        {
+            LockGuard guard(data->queue_mutex);
+            queuesize = data->queue.size();
+            if (queuesize == 0) // 负载是0，直接选中该线程
+                return i;
+        }
+        if (queuesize < min_queue_size)
+        {
+            min_queue_size = queuesize;
+            best_idle_index = i;
+        }
+    }
+
+    // 选取负载最小的线程
+    assert(best_idle_index >= 0);
+
+    return best_idle_index;
+}
+
+ThreadPool::ThreadWorker::ThreadWorker(ThreadPool *pool, std::shared_ptr<ThreadData> data)
+    : m_pool(pool), m_data(data)
+{
 }
 
 void ThreadPool::ThreadWorker::operator()()
 {
-    bool dequeued; // 是否取出队列中元素
+    using ThreadTask = ThreadPool::ThreadData::ThreadTask;
+
+    auto needstop = [this]() -> bool
+    {
+        return (m_pool->_stop.load() || m_data->_stop.load()) && m_data->queue.empty();
+    };
+
+    bool dequeued;
     while (true)
     {
-        std::function<void()> func; // 定义基础函数类func
         {
-            std::unique_lock<std::mutex> lock(m_data->mutex);
-            if (!m_pool->_stop && !m_data->stop && m_data->queue.empty())
+            LockGuard guard(m_data->queue_mutex);
+            if (needstop())
             {
-                m_data->cv.wait(lock);
-            }
-            if ((m_pool->_stop || m_data->stop) && m_data->queue.empty())
-            {
+                m_data->_stop.store(true);
                 return;
             }
-
-            // 取出任务队列中的元素
-            dequeued = m_data->queue.dequeue(func);
         }
 
-        // 如果成功取出，执行工作函数
-        if (dequeued)
-            func();
+        std::unique_ptr<ThreadTask> task;
+        {
+            LockGuard guard(m_data->queue_mutex);
+            if (needstop()) // 获取锁后检查一次
+            {
+                m_data->_stop.store(true);
+                return;
+            }
+            if (m_data->queue.empty())
+            {
+                m_data->queue_cv.Wait(guard);
+            }
+            if (needstop()) // 重新获取锁后检查一次
+            {
+                m_data->_stop.store(true);
+                return;
+            }
+            if (!m_data->queue.empty())
+                dequeued = m_data->queue.dequeue(task);
+        }
+
+        if (dequeued && task)
+        {
+            assert(task->func);
+            task->func();
+        }
     }
 }

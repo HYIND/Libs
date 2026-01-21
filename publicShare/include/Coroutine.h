@@ -229,13 +229,12 @@ public:
     {
         if (coroutine_)
         {
-            _continuationlock->lock();
+            LockGuard guard(_continuationlock);
             if (coroutine_.done())
             {
-                _continuationlock->unlock();
                 return coroutine_.promise().result();
             }
-            _syncwaitcv->Wait(*_continuationlock);
+            _syncwaitcv->Wait(guard);
             return coroutine_.promise().result();
         }
         throw std::runtime_error("Invalid task");
@@ -246,14 +245,13 @@ public:
     {
         if (coroutine_)
         {
-            _continuationlock->lock();
+            LockGuard guard(_continuationlock);
             if (coroutine_.done())
             {
-                _continuationlock->unlock();
                 coroutine_.promise().result();
                 return;
             }
-            _syncwaitcv->Wait(*_continuationlock);
+            _syncwaitcv->Wait(guard);
             coroutine_.promise().result();
             return;
         }

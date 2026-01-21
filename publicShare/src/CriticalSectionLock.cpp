@@ -78,8 +78,7 @@ LockGuard::LockGuard(CriticalSectionLock &lock, bool istrylock)
 {
     if (!istrylock)
     {
-        _lock.Enter();
-        _isownlock = true;
+        this->lock();
     }
     else
     {
@@ -94,16 +93,29 @@ bool LockGuard::isownlock()
 
 LockGuard::~LockGuard()
 {
+    unlock();
+}
+
+void LockGuard::lock()
+{
+    if (_isownlock)
+        return;
+    _lock.Enter();
+    _isownlock = true;
+}
+
+void LockGuard::unlock()
+{
     if (_isownlock)
         _lock.Leave();
 }
 
-void ConditionVariable::Wait(CriticalSectionLock &lock)
+void ConditionVariable::Wait(LockGuard &lock)
 {
     _cv.wait(lock);
 }
 
-bool ConditionVariable::WaitFor(CriticalSectionLock &lock, const std::chrono::microseconds ms)
+bool ConditionVariable::WaitFor(LockGuard &lock, const std::chrono::microseconds ms)
 {
     return _cv.wait_for(lock, ms) == std::cv_status::timeout;
 }

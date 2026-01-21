@@ -2,6 +2,7 @@
 
 #include <thread>
 #include "SafeStl.h"
+#include "CriticalSectionLock.h"
 #include <vector>
 #include <condition_variable>
 #include <functional>
@@ -14,7 +15,7 @@
 #endif
 
 // 线程池
-class ThreadPool
+class FlexThreadPool
 {
 public:
     template <typename T>
@@ -22,30 +23,24 @@ public:
     {
     private:
         std::shared_ptr<std::packaged_task<T()>> task_ptr;
-        uint32_t thread_id;
         std::weak_ptr<int> taskliveflag;
 
     public:
-        SubmitHandle(std::shared_ptr<std::packaged_task<T()>> task_ptr, uint32_t thread_id, std::weak_ptr<int> taskliveflag)
-            : task_ptr(std::move(task_ptr)), thread_id(thread_id), taskliveflag(taskliveflag) {}
+        SubmitHandle(std::shared_ptr<std::packaged_task<T()>> task_ptr, std::weak_ptr<int> taskliveflag)
+            : task_ptr(std::move(task_ptr)), taskliveflag(taskliveflag) {}
 
         SubmitHandle(const SubmitHandle &) = delete;
         SubmitHandle &operator=(const SubmitHandle &) = delete;
 
         SubmitHandle(SubmitHandle &&other) noexcept
-            : task_ptr(std::move(other.task_ptr)), thread_id(other.thread_id), taskliveflag(std::move(other.taskliveflag))
-        {
-            other.thread_id = 0;
-        }
+            : task_ptr(std::move(other.task_ptr)), taskliveflag(std::move(other.taskliveflag)) {}
 
         SubmitHandle &operator=(SubmitHandle &&other) noexcept
         {
             if (this != &other)
             {
                 task_ptr = std::move(other.task_ptr);
-                thread_id = other.thread_id;
                 taskliveflag = std::move(other.taskliveflag);
-                other.thread_id = 0;
             }
             return *this;
         }
@@ -53,9 +48,8 @@ public:
         std::future<T> get_future() const
         {
             if (!task_ptr)
-            {
                 throw std::future_error(std::future_errc::no_state);
-            }
+
             return task_ptr->get_future();
         }
 
@@ -157,11 +151,6 @@ public:
             return task_ptr != nullptr;
         }
 
-        uint32_t get_thread_id() const
-        {
-            return thread_id;
-        }
-
         ~SubmitHandle() = default;
     };
 
@@ -175,80 +164,81 @@ private:
             ThreadTask(std::function<void()> func);
         };
 
-        std::thread thread;
+        std::shared_ptr<std::thread> thread;
 
         SafeQueue<std::unique_ptr<ThreadTask>> queue;
         CriticalSectionLock queue_mutex;
         ConditionVariable queue_cv;
 
+        bool _is_idle = false;
+        int64_t last_active_time = 0;
+
         std::atomic<bool> _stop{true};
         int id;
     };
-    class ThreadWorker // 内置线程工作类
+    class ThreadWorker // 线程工作类
     {
-        using ThreadTask = ThreadPool::ThreadData::ThreadTask;
+        using ThreadTask = FlexThreadPool::ThreadData::ThreadTask;
 
     private:
-        ThreadPool *m_pool;                 // 所属线程池
+        FlexThreadPool *m_pool;             // 所属线程池
         std::shared_ptr<ThreadData> m_data; // 线程信息
+        int last_steal_threadid;
+
     public:
-        ThreadWorker(ThreadPool *pool, std::shared_ptr<ThreadData> data);
+        ThreadWorker(FlexThreadPool *pool, std::shared_ptr<ThreadData> data);
         void operator()();
+
+    private:
+        bool stealTask(std::unique_ptr<ThreadTask> &task); // 窃取任务
     };
 
 public:
-    EXPORT_FUNC ThreadPool(uint32_t threads_num = 0);
-    EXPORT_FUNC ~ThreadPool();
+    EXPORT_FUNC FlexThreadPool(uint32_t threads_maxnum = 0, uint32_t worker_expire_second = 30, bool worksteal = true);
+    EXPORT_FUNC ~FlexThreadPool();
 
-    ThreadPool(const ThreadPool &) = delete;
-    ThreadPool(ThreadPool &&) = delete;
-    ThreadPool &operator=(const ThreadPool &) = delete;
-    ThreadPool &operator=(ThreadPool &&) = delete;
+    FlexThreadPool(const FlexThreadPool &) = delete;
+    FlexThreadPool(FlexThreadPool &&) = delete;
+    FlexThreadPool &operator=(const FlexThreadPool &) = delete;
+    FlexThreadPool &operator=(FlexThreadPool &&) = delete;
 
     EXPORT_FUNC void start();
     EXPORT_FUNC void stop();
     EXPORT_FUNC void stopnow();
     EXPORT_FUNC bool running();
-    EXPORT_FUNC uint32_t workersize();
+    EXPORT_FUNC uint32_t workermaxsize();
 
 private:
-    uint32_t GetAvailablieThread();
-    std::weak_ptr<int> CommitTask(uint32_t thread_id, std::function<void()> func);
+    EXPORT_FUNC void StartThread(std::shared_ptr<ThreadData> data);
+    EXPORT_FUNC std::weak_ptr<int> CommitToAvailablieThread(std::function<void()> func);
+    EXPORT_FUNC void MonitorThreadFunc();
 
 public:
     template <typename F, typename... Args>
-    EXPORT_FUNC auto submit_to(uint32_t thread_id, F &&f, Args &&...args) // 指定线程id
-        -> std::shared_ptr<ThreadPool::SubmitHandle<decltype(f(args...))>>
+    EXPORT_FUNC auto submit(F &&f, Args &&...args)
+        -> std::shared_ptr<FlexThreadPool::SubmitHandle<decltype(f(args...))>>
     {
-        if (thread_id >= _threads.size())
-        {
-            throw std::out_of_range("Invalid thread id");
-        }
-
         using ReturnType = decltype(f(args...));
 
-        // 创建一个function
-        std::function<decltype(f(args...))()> func = std::bind(std::forward<F>(f), std::forward<Args>(args)...); // 连接函数和参数定义，特殊函数类型，避免左右值错误
+        std::function<ReturnType()> func = std::bind(std::forward<F>(f), std::forward<Args>(args)...);
         // 封装为packaged_task以便异步操作
         auto task_ptr = std::make_shared<std::packaged_task<ReturnType()>>(func);
 
-        // Warp packaged task into void function
         std::function<void()> warpper_func =
             [task_ptr]()
         {
             (*task_ptr)();
         };
 
-        auto taskliveflag = CommitTask(thread_id, warpper_func);
+        auto taskliveflag = CommitToAvailablieThread(warpper_func);
 
-        return std::make_shared<ThreadPool::SubmitHandle<ReturnType>>(task_ptr, thread_id, taskliveflag); // 返回Handle
+        return std::make_shared<FlexThreadPool::SubmitHandle<ReturnType>>(task_ptr, taskliveflag); // 返回Handle
     }
 
     template <typename F, typename C, typename... Args>
-    EXPORT_FUNC auto submit_to(uint32_t thread_id, F &&f, C &&c, Args &&...args) // 指定线程id
-        -> std::shared_ptr<ThreadPool::SubmitHandle<decltype((c->*f)(args...))>>
+    EXPORT_FUNC auto submit(F &&f, C &&c, Args &&...args)
+        -> std::shared_ptr<FlexThreadPool::SubmitHandle<decltype((c->*f)(args...))>>
     {
-
         using ReturnType = decltype((c->*f)(args...));
 
         auto func =
@@ -258,28 +248,19 @@ public:
             return (c->*f)(args...);
         };
 
-        return submit_to(thread_id, func);
-    }
-
-    template <typename F, typename... Args>
-    EXPORT_FUNC auto submit(F &&f, Args &&...args) // 随机分配线程id
-        -> std::shared_ptr<ThreadPool::SubmitHandle<decltype(f(args...))>>
-    {
-        uint32_t thread_id = GetAvailablieThread();
-        return submit_to(thread_id, std::forward<F>(f), std::forward<Args>(args)...);
-    }
-
-    template <typename F, typename C, typename... Args>
-    EXPORT_FUNC auto submit(F &&f, C &&c, Args &&...args) // 随机分配线程id
-        -> std::shared_ptr<ThreadPool::SubmitHandle<decltype(f(args...))>>
-    {
-        uint32_t thread_id = GetAvailablieThread();
-        return submit_to(thread_id, std::forward<F>(f), std::forward<C>(c), std::forward<Args>(args)...);
+        return submit(func);
     }
 
 private:
     std::atomic<bool> _stop;
     uint32_t _threadscount;
-    std::atomic<int> next_thread;
     std::vector<std::shared_ptr<ThreadData>> _threads;
+
+    std::shared_ptr<std::thread> _monitorthread;
+    CriticalSectionLock _monitor_mutex;
+    ConditionVariable _monitor_cv;
+
+    uint32_t _workerExpireTime;
+
+    bool _worksteal;
 };
