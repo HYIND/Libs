@@ -20,15 +20,22 @@ void testTimer()
 {
     std::cout << "testTimer test start...\n";
 
-    auto handle_once = TimerTask::CreateOnce("testtask", 5000, std::bind(oncedosome, 5));
+    auto handle_once = TimerTask::CreateOnce("testtask", 3000, std::bind(oncedosome, 5));
     handle_once->Run();
 
-    auto handle_repeat = TimerTask::CreateRepeat("testtask", 2000, std::bind(dosome, 10), 100);
+    auto handle_repeat = TimerTask::CreateRepeat("testtask", 1000, std::bind(dosome, 10), 100);
     handle_repeat->Run();
 
-    sleep(10);
+    sleep(5);
     handle_once->Stop();
     handle_repeat->Stop();
+    sleep(5);
+    handle_once->Run();
+    handle_repeat->Run();
+    sleep(5);
+    handle_once->Stop();
+    handle_repeat->Stop();
+
     std::cout << "testTimer test end...\n";
 }
 

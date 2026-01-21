@@ -4,7 +4,9 @@
 #include <memory>
 #include <string>
 
-class TimerTask : public std::enable_shared_from_this<TimerTask>
+struct TimerTaskHandle;
+
+class TimerTask
 {
 public:
     using Callback = std::function<void()>;
@@ -27,14 +29,13 @@ public:
     void Clean(); // 关闭定时器并清理资源
 
 public:
-    const std::string &name() const { return name_; }
-    uint64_t interval() const { return interval_ms_; }
-    bool is_repeat() const { return repeat_; }
-    bool is_valid() const { return valid_; }
-    int timer_fd() const { return timer_fd_; }
-    Callback callback() { return callback_; };
-
-    void mark_invalid() { valid_ = false; }
+    const std::string &name();
+    uint64_t interval();
+    bool is_repeat();
+    bool is_valid();
+    int timer_fd();
+    Callback callback();
+    void mark_invalid();
 
 private:
     TimerTask(const std::string &name,
@@ -49,11 +50,5 @@ private:
     bool create_timer_fd();
 
 private:
-    std::string name_;
-    uint64_t interval_ms_;
-    bool repeat_;
-    bool valid_;
-    Callback callback_;
-    int timer_fd_;
-    uint64_t delay_ms_;
+    std::shared_ptr<TimerTaskHandle> _handle;
 };

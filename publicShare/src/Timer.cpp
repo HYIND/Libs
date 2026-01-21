@@ -17,16 +17,38 @@
         x = nullptr;   \
     }
 
-struct TimerTaskWeakWrapper
+struct EpollWeakWrapper
 {
     int fd;
-    std::weak_ptr<TimerTask> weakData;
+    std::weak_ptr<TimerTaskHandle> weakData;
 
-    TimerTaskWeakWrapper(int fd, const std::shared_ptr<TimerTask> &data)
+    EpollWeakWrapper(int fd, const std::shared_ptr<TimerTaskHandle> &data)
         : fd(fd), weakData(data) {}
 };
 
-bool add_to_epoll(int epollfd, int fd, TimerTaskWeakWrapper *wrapper)
+struct TimerTaskHandle
+{
+    using Callback = std::function<void()>;
+
+    std::string name_;
+    uint64_t interval_ms_;
+    bool repeat_;
+    bool valid_;
+    Callback callback_;
+    int timer_fd_;
+    uint64_t delay_ms_;
+
+    const std::string &name() const { return name_; }
+    uint64_t interval() const { return interval_ms_; }
+    bool is_repeat() const { return repeat_; }
+    bool is_valid() const { return valid_; }
+    int timer_fd() const { return timer_fd_; }
+    Callback callback() { return callback_; };
+    void mark_invalid() { valid_ = false; }
+    void mark_valid() { valid_ = true; }
+};
+
+bool add_to_epoll(int epollfd, int fd, EpollWeakWrapper *wrapper)
 {
     epoll_event event;
     memset(&event, 0, sizeof(event));
@@ -51,12 +73,12 @@ public:
     bool Running();
 
 public:
-    bool Register_Task(std::shared_ptr<TimerTask> task);
-    bool Cancel_Task(std::shared_ptr<TimerTask> task);
+    bool Register_Task(std::shared_ptr<TimerTaskHandle> task);
+    bool Cancel_Task(std::shared_ptr<TimerTaskHandle> task);
 
 private:
     void Loop();
-    int EventProcess(std::shared_ptr<TimerTask> &task, uint32_t events);
+    int EventProcess(std::shared_ptr<TimerTaskHandle> &task, uint32_t events);
 
 private:
     std::atomic<bool> _isrunning;
@@ -64,7 +86,7 @@ private:
     epoll_event _events[1500];
 
     CriticalSectionLock _lock;
-    BiDirectionalMap<int, std::shared_ptr<TimerTask>> _timers;
+    BiDirectionalMap<int, std::shared_ptr<TimerTaskHandle>> _timers;
 };
 
 TimerProcessImpl::TimerProcessImpl()
@@ -85,7 +107,7 @@ TimerProcessImpl::TimerProcessImpl()
     }
     if (shutdown_eventfd > 0 && _epoll > 0)
     {
-        TimerTaskWeakWrapper *wrapper = new TimerTaskWeakWrapper(shutdown_eventfd, std::shared_ptr<TimerTask>(nullptr));
+        EpollWeakWrapper *wrapper = new EpollWeakWrapper(shutdown_eventfd, std::shared_ptr<TimerTaskHandle>(nullptr));
         add_to_epoll(_epoll, shutdown_eventfd, wrapper);
     }
 }
@@ -133,47 +155,47 @@ bool TimerProcessImpl::Running()
     return _isrunning;
 }
 
-bool TimerProcessImpl::Register_Task(std::shared_ptr<TimerTask> task)
+bool TimerProcessImpl::Register_Task(std::shared_ptr<TimerTaskHandle> handle)
 {
-    if (!Running() || !task || !task->is_valid())
+    if (!Running() || !handle)
         return false;
 
-    int timer_fd = task->timer_fd();
+    int timer_fd = handle->timer_fd();
     if (timer_fd < 0)
         return false;
 
-    TimerTaskWeakWrapper *wrapper = new TimerTaskWeakWrapper(timer_fd, std::shared_ptr<TimerTask>(task));
+    EpollWeakWrapper *wrapper = new EpollWeakWrapper(timer_fd, handle);
     LockGuard lock(_lock);
     if (!add_to_epoll(_epoll, timer_fd, wrapper))
     {
-        std::cerr << "[TimerManager] Failed to add timerfd for '"
-                  << task->name() << "'" << std::endl;
+        std::cerr << "[TimerManager] Failed to add timerfd for ["
+                  << handle->name() << "]" << std::endl;
         return false;
     }
-
-    _timers.Insert(timer_fd, task);
-
-    // std::cout << "[TimerManager] Registered timer '" << task->name() << "'" << std::endl;
+    handle->mark_valid();
+    _timers.Insert(timer_fd, handle);
+    // std::cout << "[TimerManager] Registered timer [" << handle->name() << "]" << std::endl;
     return true;
 }
 
-bool TimerProcessImpl::Cancel_Task(std::shared_ptr<TimerTask> task)
+bool TimerProcessImpl::Cancel_Task(std::shared_ptr<TimerTaskHandle> handle)
 {
-    if (!task)
+    if (!handle)
         return false;
 
-    int timer_fd = task->timer_fd();
+    int timer_fd = handle->timer_fd();
     if (timer_fd < 0)
         return false;
 
     LockGuard lock(_lock);
 
-    std::shared_ptr<TimerTask> temp;
+    std::shared_ptr<TimerTaskHandle> temp;
     if (!_timers.FindByLeft(timer_fd, temp))
         return false;
 
     remove_from_epoll(_epoll, timer_fd);
     _timers.EraseByLeft(timer_fd);
+    temp->mark_invalid();
     // std::cout << "[TimerManager] Unregistered timer '" << task->name() << "'" << std::endl;
 
     return true;
@@ -203,7 +225,7 @@ void TimerProcessImpl::Loop()
             try
             {
                 epoll_event event = _events[i];
-                auto *wrapper = static_cast<TimerTaskWeakWrapper *>(event.data.ptr);
+                auto *wrapper = static_cast<EpollWeakWrapper *>(event.data.ptr);
                 if (wrapper)
                 {
                     if (shutdown_eventfd > 0 && wrapper->fd == shutdown_eventfd)
@@ -216,8 +238,8 @@ void TimerProcessImpl::Loop()
                     }
 
                     LockGuard lock(_lock);
-                    std::shared_ptr<TimerTask> task = wrapper->weakData.lock();
-                    std::shared_ptr<TimerTask> find_task;
+                    std::shared_ptr<TimerTaskHandle> task = wrapper->weakData.lock();
+                    std::shared_ptr<TimerTaskHandle> find_task;
                     if (task && _timers.FindByLeft(task->timer_fd(), find_task) && task == find_task && task->is_valid())
                     {
                         EventProcess(task, event.events);
@@ -236,7 +258,7 @@ void TimerProcessImpl::Loop()
     }
 }
 
-int TimerProcessImpl::EventProcess(std::shared_ptr<TimerTask> &task, uint32_t events)
+int TimerProcessImpl::EventProcess(std::shared_ptr<TimerTaskHandle> &task, uint32_t events)
 {
     // 读取过期次数
     uint64_t expirations;
@@ -250,7 +272,7 @@ int TimerProcessImpl::EventProcess(std::shared_ptr<TimerTask> &task, uint32_t ev
     try
     {
         if (task->callback())
-            (task->callback())();
+            std::invoke(task->callback());
     }
     catch (const std::exception &e)
     {
@@ -262,7 +284,6 @@ int TimerProcessImpl::EventProcess(std::shared_ptr<TimerTask> &task, uint32_t ev
     if (!task->is_repeat())
     {
         Cancel_Task(task);
-        task->mark_invalid();
     }
     return 1;
 }
@@ -272,8 +293,8 @@ class TimerProcess
 public:
     static TimerProcess *Instance();
 
-    bool Register_Task(std::shared_ptr<TimerTask> task);
-    bool Cancel_Task(std::shared_ptr<TimerTask> task);
+    bool Register_Task(std::shared_ptr<TimerTaskHandle> task);
+    bool Cancel_Task(std::shared_ptr<TimerTaskHandle> task);
 
     TimerProcess(const TimerProcess &) = delete;
     TimerProcess &operator=(const TimerProcess &) = delete;
@@ -323,26 +344,30 @@ bool TimerProcess::Running()
 {
     return pImpl->Running();
 };
-bool TimerProcess::Register_Task(std::shared_ptr<TimerTask> task)
+bool TimerProcess::Register_Task(std::shared_ptr<TimerTaskHandle> task)
 {
     return pImpl->Register_Task(task);
 };
-bool TimerProcess::Cancel_Task(std::shared_ptr<TimerTask> task)
+bool TimerProcess::Cancel_Task(std::shared_ptr<TimerTaskHandle> task)
 {
     return pImpl->Cancel_Task(task);
 };
-
 
 TimerTask::TimerTask(const std::string &name,
                      uint64_t delay_ms,
                      bool repeat,
                      Callback callback,
                      uint64_t interval_ms)
-    : name_(name), interval_ms_(interval_ms), repeat_(repeat), valid_(false), callback_(std::move(callback)), timer_fd_(-1), delay_ms_(delay_ms)
 {
-
-    if (create_timer_fd())
-        valid_ = true;
+    _handle = std::make_shared<TimerTaskHandle>();
+    _handle->name_ = name;
+    _handle->interval_ms_ = interval_ms;
+    _handle->repeat_ = repeat;
+    _handle->mark_invalid();
+    _handle->callback_ = std::move(callback);
+    _handle->timer_fd_ = -1;
+    _handle->delay_ms_ = delay_ms;
+    create_timer_fd();
 }
 
 TimerTask::~TimerTask()
@@ -371,33 +396,33 @@ std::shared_ptr<TimerTask> TimerTask::CreateRepeat(
 
 bool TimerTask::Run()
 {
-    return TimerProcess::Instance()->Register_Task(shared_from_this());
+    return TimerProcess::Instance()->Register_Task(_handle);
 }
 
 bool TimerTask::Stop()
 {
-    return TimerProcess::Instance()->Cancel_Task(shared_from_this());
+    return TimerProcess::Instance()->Cancel_Task(_handle);
 }
 
 bool TimerTask::create_timer_fd()
 {
-    timer_fd_ = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
-    if (timer_fd_ < 0)
+    _handle->timer_fd_ = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
+    if (_handle->timer_fd_ < 0)
     {
         return false;
     }
 
     itimerspec its;
     memset(&its, 0, sizeof(its));
-    its.it_value.tv_sec = delay_ms_ / 1000;
-    its.it_value.tv_nsec = (delay_ms_ % 1000) * 1000000;
-    its.it_interval.tv_sec = repeat_ ? (interval_ms_ / 1000) : 0;
-    its.it_interval.tv_nsec = repeat_ ? ((interval_ms_ % 1000) * 1000000) : 0;
+    its.it_value.tv_sec = _handle->delay_ms_ / 1000;
+    its.it_value.tv_nsec = (_handle->delay_ms_ % 1000) * 1000000;
+    its.it_interval.tv_sec = _handle->repeat_ ? (_handle->interval_ms_ / 1000) : 0;
+    its.it_interval.tv_nsec = _handle->repeat_ ? ((_handle->interval_ms_ % 1000) * 1000000) : 0;
 
-    if (timerfd_settime(timer_fd_, 0, &its, nullptr) < 0)
+    if (timerfd_settime(_handle->timer_fd_, 0, &its, nullptr) < 0)
     {
-        close(timer_fd_);
-        timer_fd_ = -1;
+        close(_handle->timer_fd_);
+        _handle->timer_fd_ = -1;
         return false;
     }
 
@@ -406,15 +431,18 @@ bool TimerTask::create_timer_fd()
 
 void TimerTask::Clean()
 {
-    if (valid_)
+    if (!_handle)
+        return;
+
+    if (_handle->valid_)
     {
-        TimerProcess::Instance()->Cancel_Task(shared_from_this());
-        valid_ = false;
+        Stop();
+        _handle->mark_invalid();
     }
 
-    if (timer_fd_ >= 0)
+    if (_handle->timer_fd_ >= 0)
     {
-        close(timer_fd_);
-        timer_fd_ = -1;
+        close(_handle->timer_fd_);
+        _handle->timer_fd_ = -1;
     }
 }
