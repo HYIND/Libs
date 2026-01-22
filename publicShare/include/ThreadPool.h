@@ -181,6 +181,8 @@ private:
         CriticalSectionLock queue_mutex;
         ConditionVariable queue_cv;
 
+        bool _is_idle = true;
+
         std::atomic<bool> _stop{true};
         int id;
     };

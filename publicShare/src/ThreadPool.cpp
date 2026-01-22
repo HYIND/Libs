@@ -119,24 +119,24 @@ std::weak_ptr<int> ThreadPool::CommitTask(uint32_t thread_id, std::function<void
 uint32_t ThreadPool::GetAvailablieThread()
 {
     int best_idle_index = -1;
-    int min_queue_size = INT32_MAX;
+    int min_task_size = INT32_MAX;
 
     // 尝试找到最低负载的线程,负载是0则直接选中
     for (uint32_t i = 0; i < _threads.size(); ++i)
     {
         auto &data = _threads[i];
 
-        int queuesize = data->queue.size();
-        if (queuesize == 0)
+        int tasksize = data->queue.size() + (data->_is_idle ? 0 : 1);
+        if (tasksize == 0)
         {
             LockGuard guard(data->queue_mutex);
-            queuesize = data->queue.size();
-            if (queuesize == 0) // 负载是0，直接选中该线程
+            tasksize = data->queue.size() + (data->_is_idle ? 0 : 1);
+            if (tasksize == 0) // 负载是0，直接选中该线程
                 return i;
         }
-        if (queuesize < min_queue_size)
+        if (tasksize < min_task_size)
         {
-            min_queue_size = queuesize;
+            min_task_size = tasksize;
             best_idle_index = i;
         }
     }
@@ -173,6 +173,7 @@ void ThreadPool::ThreadWorker::operator()()
             }
         }
 
+        dequeued = false;
         std::unique_ptr<ThreadTask> task;
         {
             LockGuard guard(m_data->queue_mutex);
@@ -191,7 +192,10 @@ void ThreadPool::ThreadWorker::operator()()
                 return;
             }
             if (!m_data->queue.empty())
+            {
                 dequeued = m_data->queue.dequeue(task);
+                m_data->_is_idle = false;
+            }
         }
 
         if (dequeued && task)
@@ -199,5 +203,6 @@ void ThreadPool::ThreadWorker::operator()()
             assert(task->func);
             task->func();
         }
+        m_data->_is_idle = true;
     }
 }

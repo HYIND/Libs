@@ -159,7 +159,7 @@ std::weak_ptr<int> FlexThreadPool::CommitToAvailablieThread(std::function<void()
     using ThreadTask = FlexThreadPool::ThreadData::ThreadTask;
 
     int best_idle_index = -1;
-    int min_queue_size = INT32_MAX;
+    int min_task_size = INT32_MAX;
 
     auto task = std::make_unique<ThreadTask>(func);
     auto taskliveflag = task->taskliveflag;
@@ -169,12 +169,12 @@ std::weak_ptr<int> FlexThreadPool::CommitToAvailablieThread(std::function<void()
     {
         auto &data = _threads[i];
 
-        int queuesize = data->queue.size();
-        if (queuesize == 0)
+        int tasksize = data->queue.size() + (data->_is_idle ? 0 : 1);
+        if (tasksize == 0)
         {
             LockGuard guard(data->queue_mutex);
-            queuesize = data->queue.size();
-            if (queuesize == 0) // 负载是0，直接投递
+            tasksize = data->queue.size() + (data->_is_idle ? 0 : 1);
+            if (tasksize == 0) // 无负载是0，直接投递
             {
                 data->queue.enqueue(std::move(task));
                 data->last_active_time = GetTimeStampSecond();
@@ -184,9 +184,9 @@ std::weak_ptr<int> FlexThreadPool::CommitToAvailablieThread(std::function<void()
                 return std::weak_ptr<int>(taskliveflag);
             }
         }
-        if (queuesize < min_queue_size)
+        if (tasksize < min_task_size)
         {
-            min_queue_size = queuesize;
+            min_task_size = tasksize;
             best_idle_index = i;
         }
     }
@@ -279,6 +279,7 @@ void FlexThreadPool::ThreadWorker::operator()()
             }
         }
 
+        dequeued = false;
         std::unique_ptr<ThreadTask> task;
         if (m_pool->_worksteal && m_data->queue.empty() && stealTask(task) && task)
         {
