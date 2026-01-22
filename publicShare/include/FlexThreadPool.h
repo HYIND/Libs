@@ -78,7 +78,7 @@ public:
 
             while (true)
             {
-                auto status = fut.wait_for(std::chrono::milliseconds(100));
+                auto status = fut.wait_for(std::chrono::milliseconds(10));
                 if (status == std::future_status::ready)
                 {
                     try
@@ -170,7 +170,7 @@ private:
         CriticalSectionLock queue_mutex;
         ConditionVariable queue_cv;
 
-        bool _is_idle = false;
+        bool _is_idle = true;
         int64_t last_active_time = 0;
 
         std::atomic<bool> _stop{true};
