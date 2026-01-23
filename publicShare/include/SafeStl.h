@@ -32,21 +32,19 @@ public:
 	V &operator[](const K &key)
 	{
 		std::lock_guard<CriticalSectionLock> lock(_lock);
-		V result = _map[key];
+		return _map[key];
 	}
 
 	int Size()
 	{
 		std::lock_guard<CriticalSectionLock> lock(_lock);
-		int result = _map.size();
-		return result;
+		return _map.size();
 	}
 
 	bool IsEmpty()
 	{
 		std::lock_guard<CriticalSectionLock> lock(_lock);
-		bool result = _map.empty();
-		return result;
+		return _map.empty();
 	}
 
 	bool Insert(const K &key, const V &value)
