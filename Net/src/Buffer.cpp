@@ -106,8 +106,19 @@ void Buffer::CopyFromBuf(const char *buf, uint64_t length)
     _length = length;
     _pos = 0;
 }
-
 void Buffer::QuoteFromBuf(Buffer &other)
+{
+    SAFE_DELETE_ARRAY(_buf);
+
+    this->_buf = other._buf;
+    this->_length = other._length;
+    this->_pos = 0;
+    other._buf = nullptr;
+    other._length = 0;
+    other._pos = 0;
+}
+
+void Buffer::QuoteFromBuf(Buffer &&other)
 {
     SAFE_DELETE_ARRAY(_buf);
 

@@ -33,7 +33,8 @@ public:
 
     EXPORT_FUNC void CopyFromBuf(const char *buf, uint64_t length); // 拷贝
     EXPORT_FUNC void CopyFromBuf(const Buffer &other);
-    EXPORT_FUNC void QuoteFromBuf(Buffer &other); // 以引用的形式占有一段内存,other重置
+    EXPORT_FUNC void QuoteFromBuf(Buffer &other);  // 以引用的形式占有一段内存,other重置
+    EXPORT_FUNC void QuoteFromBuf(Buffer &&other); // 以引用的形式占有一段内存,other重置
 
     /**
      * 以下读写操作均与pos相关，并引起相关流pos变化
