@@ -380,7 +380,8 @@ std::shared_ptr<TimerTask> TimerTask::CreateOnce(
     uint64_t delay_ms,
     Callback callback)
 {
-
+    if (delay_ms <= 5)
+        delay_ms = 5;
     return std::shared_ptr<TimerTask>(new TimerTask(name, delay_ms, false, std::move(callback)));
 }
 
@@ -391,6 +392,8 @@ std::shared_ptr<TimerTask> TimerTask::CreateRepeat(
     uint64_t delay_ms)
 {
 
+    if (delay_ms <= 5)
+        delay_ms = 5;
     return std::shared_ptr<TimerTask>(new TimerTask(name, delay_ms, true, std::move(callback), interval_ms));
 }
 
