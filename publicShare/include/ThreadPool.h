@@ -255,6 +255,5 @@ public:
 private:
     std::atomic<bool> _stop;
     uint32_t _threadscount;
-    std::atomic<int> next_thread;
     std::vector<std::shared_ptr<ThreadData>> _threads;
 };
