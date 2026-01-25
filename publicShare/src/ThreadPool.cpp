@@ -8,7 +8,7 @@ ThreadPool::ThreadData::ThreadTask::ThreadTask(std::function<void()> func)
 }
 
 ThreadPool::ThreadPool(uint32_t threads_num)
-    : _stop{true}, _threadscount(threads_num),
+    : _stop{true}, _threadscount(threads_num)
 {
     if (_threadscount <= 0)
         _threadscount = std::thread::hardware_concurrency();
