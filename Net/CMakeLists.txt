@@ -2,11 +2,10 @@ cmake_minimum_required(VERSION 3.16)
 
 project(net C CXX)
 
-include_directories(../include)
-include_directories(../../publicShare/include)
-include_directories(../../Log/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../publicShare/include)
 
-aux_source_directory(../src DIR_SRC)
+aux_source_directory(src DIR_SRC)
 
 option(USE_IO_URING "Use io_uring instead of epoll" ON)
 
@@ -22,12 +21,14 @@ endif()
 
 ADD_LIBRARY(net SHARED ${DIR_SRC})
 
-add_library(public SHARED IMPORTED)
-set_target_properties(public PROPERTIES IMPORTED_LOCATION ${CMAKE_SOURCE_DIR}../bin/libpublic.so)
+if(NOT TARGET public)
+    add_library(public SHARED IMPORTED)
+endif()
+set_target_properties(public PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/../bin/libpublic.so)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 target_link_libraries(public INTERFACE Threads::Threads)
 
 set(CMAKE_BUILD_TYPE "Debug")
-SET(LIBRARY_OUTPUT_PATH ../bin)
+SET(LIBRARY_OUTPUT_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../bin)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread -lfmt -fpermissive -fcoroutines")
