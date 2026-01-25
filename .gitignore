@@ -33,3 +33,7 @@ _deps
 NetDebug
 Log
 bin/
+
+out/*
+
+CMakeSettings.json
