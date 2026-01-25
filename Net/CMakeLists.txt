@@ -18,6 +18,7 @@ list(APPEND ALL_SRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/Buffer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/CRC32Helper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/CustomTcpSession.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/CustomWebSocketSession.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/IOuringCore.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/NetCore.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/PureTCPClient.cpp
@@ -29,6 +30,7 @@ list(APPEND ALL_SRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/TcpEndPointListener.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/TCPTransportWarpper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/WebSocketClient.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/WebSocketHeleper.cpp
     )
 
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
@@ -64,8 +66,7 @@ endif()
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     # Debug 配置添加 _d 后缀
     if(WIN32)
-        # Windows/Visual Studio（多配置）
-        set_target_properties(public PROPERTIES
+        set_target_properties(net PROPERTIES
             DEBUG_POSTFIX "_d"
             # 确保所有输出目录一致
             RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../bin
@@ -73,14 +74,13 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
             LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../bin
         )
     else()
-        # Linux/GCC（单配置）
-        set_target_properties(public PROPERTIES
-            OUTPUT_NAME "public_d"  # 直接改名为 public_d
+        set_target_properties(net PROPERTIES
+            OUTPUT_NAME "net_d"  # 直接改名为 net_d
         )
     endif()
 else()
     # Release 配置保持原名
-    set_target_properties(public PROPERTIES
+    set_target_properties(net PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../bin
         ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../bin
         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../bin
