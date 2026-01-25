@@ -396,7 +396,7 @@ bool EpollCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> Base
 				printf("write error for %d: %d %s\n", fd, errno, strerror(errno));
 				close(fd);
 				this->DelNetFd(Con.get());
-				Con->OnRDHUP();
+				Con->RDHUP();
 				Con->GetSendMtx().unlock();
 				return false;
 			}

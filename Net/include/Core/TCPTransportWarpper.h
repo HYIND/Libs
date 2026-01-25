@@ -136,7 +136,7 @@ public:
 	EXPORT_FUNC SafeQueue<Buffer *> &GetSendData();
 	EXPORT_FUNC CriticalSectionLock &GetSendMtx();
 
-public:
+protected:
 	EXPORT_FUNC virtual void OnRDHUP();
 	EXPORT_FUNC virtual void OnREAD(int fd);									// 可读事件
 	EXPORT_FUNC virtual void OnREAD(int fd, Buffer &buf);						// 可读事件
