@@ -2,6 +2,7 @@
 #include <set>
 #include "Core/EpollCore.h"
 #include "Core/NetCoredef.h"
+#include "Connection/TCPTransportConnection.h"
 #include "BiDirectionalMap.h"
 
 static int shutdown_eventfd = -1;

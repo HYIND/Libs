@@ -28,9 +28,11 @@ list(APPEND ALL_SRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/strHelper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/TCPEndPoint.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/TcpEndPointListener.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/TCPTransportWarpper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/WebSocketClient.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/WebSocketHeleper.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/BaseTransportConnection.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/TCPTransportListener.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/TCPTransportConnection.cpp
     )
 
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
