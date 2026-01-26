@@ -105,7 +105,7 @@ bool TCPTransportConnection::Release()
 {
 	NetCore->DelNetFd(this);
 	bool result = false;
-	if (CloseSocket(_socket) == -1)
+	if (!CloseSocket(_socket))
 		result = false;
 	else
 	{

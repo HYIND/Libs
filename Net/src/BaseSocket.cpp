@@ -1,10 +1,12 @@
 #include "Core/BaseSocket.h"
 
-int CloseSocket(BaseSocket socket)
+bool CloseSocket(BaseSocket socket)
 {
+	if (socket <= 0)
+		return false;
 #ifdef __linux__
-	return close(socket);
+	return (close(socket) != -1);
 #elif _WIN32
-	return closesocket(socket);
+	return closesocket(socket) != SOCKET_ERROR;
 #endif
 }

@@ -23,7 +23,7 @@ using BaseSocket = SOCKET;
 
 #include "NetExportMarco.h"
 
-int NET_API CloseSocket(BaseSocket);
+bool NET_API CloseSocket(BaseSocket);
 
 constexpr BaseSocket Invaild_Socket = 0;
 

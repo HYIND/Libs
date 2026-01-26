@@ -84,7 +84,7 @@ bool TCPTransportListener::Listen(const string& IP, int Port)
 
 bool TCPTransportListener::ReleaseListener()
 {
-	if (CloseSocket(_socket) == -1)
+	if (!CloseSocket(_socket))
 		return false;
 
 	NetCore->DelNetFd(this);
