@@ -49,7 +49,7 @@ void BaseTransportConnection::RDHUP()
 	}
 	_OnRDHUPCount.fetch_sub(1, std::memory_order_relaxed);
 }
-#ifdef _linux_
+#ifdef __linux__
 void BaseTransportConnection::READ(BaseSocket socket)
 {
 	_OnREADCount.fetch_add(1, std::memory_order_relaxed);

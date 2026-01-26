@@ -1,6 +1,6 @@
 #pragma once
 
-#if _linux_
+#if __linux__
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>

@@ -2,7 +2,7 @@
 
 int CloseSocket(BaseSocket socket)
 {
-#ifdef _linux
+#ifdef __linux__
 	return close(socket);
 #elif _WIN32
 	return closesocket(socket);

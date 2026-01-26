@@ -29,7 +29,7 @@ public:
 
 public:
 	virtual bool Connect(const std::string& IP, uint16_t Port);
-#ifdef _linux_
+#ifdef __linux__
 	virtual Task<bool> ConnectAsync(const std::string& IP, uint16_t Port);
 #endif
 	virtual bool Release();
@@ -41,7 +41,7 @@ public:
 
 public:
 	virtual bool TryHandshake(uint32_t timeOutMs);
-#ifdef _linux_
+#ifdef __linux__
 	virtual Task<bool> TryHandshakeAsync(uint32_t timeOutMs);
 #endif
 	virtual CheckHandshakeStatus CheckHandshakeTryMsg(Buffer& buffer);

@@ -9,6 +9,9 @@
 #include "EndPoint/TCPEndPoint.h"
 #include "EndPoint/TcpEndPointListener.h"
 
+#include <liburing.h>
+#include <sys/eventfd.h>
+
 #define ENTRIES 15000
 
 #define RECVBUFFERMINLEN 1024
@@ -297,7 +300,7 @@ public:
 
 IOuringOPData *IOuringOPData::CreateWriteOP(std::shared_ptr<BaseTransportConnection> Con, Buffer &buf)
 {
-    IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_WRITE, Con->GetFd(), Con, 0);
+    IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_WRITE, Con->GetSocket(), Con, 0);
     int oripos = buf.Position();
     data->buffer.QuoteFromBuf(buf);
     data->buffer.Seek(oripos);
@@ -305,19 +308,19 @@ IOuringOPData *IOuringOPData::CreateWriteOP(std::shared_ptr<BaseTransportConnect
 }
 IOuringOPData *IOuringOPData::CreateReadOP(std::shared_ptr<BaseTransportConnection> Con, uint32_t size)
 {
-    IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_READ, Con->GetFd(), Con, size);
+    IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_READ, Con->GetSocket(), Con, size);
     return data;
 }
 
 IOuringOPData *IOuringOPData::CreateAcceptOP(std::shared_ptr<BaseTransportConnection> Con)
 {
-    IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_ACCEPT, Con->GetFd(), Con, 0);
+    IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_ACCEPT, Con->GetSocket(), Con, 0);
     data->addr_len = sizeof(sockaddr_in);
     return data;
 }
 IOuringOPData *IOuringOPData::CreateWillWriteOP(std::shared_ptr<BaseTransportConnection> Con)
 {
-    IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_WILLWRITE, Con->GetFd(), Con, 0);
+    IOuringOPData *data = IODATAMANAGER->AllocateData(IOUring_OPType::OP_WILLWRITE, Con->GetSocket(), Con, 0);
     return data;
 }
 
@@ -809,13 +812,13 @@ bool IOuringCoreProcessImpl::AddReadShutDownEvent(IOuringOPData *opdata)
 
 bool IOuringCoreProcessImpl::AddNetFd(std::shared_ptr<BaseTransportConnection> Con)
 {
-    // cout << "AddNetFd fd :" << Con->GetFd() << endl;
-    if (!Con || Con->GetFd() <= 0)
+    // cout << "AddNetFd fd :" << Con->GetSocket() << endl;
+    if (!Con || Con->GetSocket() <= 0)
         return false;
 
     std::shared_ptr<NetCore_IOuringData> iodata = std::make_shared<NetCore_IOuringData>();
     std::weak_ptr<BaseTransportConnection> weak(Con);
-    iodata->fd = Con->GetFd();
+    iodata->fd = Con->GetSocket();
     iodata->weakCon = weak;
     iodata->recver = std::make_shared<SequentialEventExecutor>(this, iodata);
     iodata->state = std::make_shared<DynamicBufferState>();
@@ -1178,7 +1181,7 @@ int IOuringCoreProcessImpl::EventProcess(IOuringOPData *opdata, std::vector<IOur
     }
     case IOUring_OPType::OP_WILLWRITE:
     {
-        if (Con->GetFd() == fd && Con->GetNetType() == NetType::Client)
+        if (Con->GetSocket() == fd && Con->GetNetType() == NetType::Client)
         {
             std::shared_ptr<TCPTransportConnection> tcpCon(
                 Con, static_cast<TCPTransportConnection *>(Con.get()));
@@ -1311,11 +1314,11 @@ void IOuringCoreProcessImpl::DoPostExcuteEvents(std::vector<std::shared_ptr<Sequ
                 if (event->type == SequentialEventExecutor::ExcuteEvent::EventType::READ_DATA)
                 {
                     Buffer &buf = *(event->data);
-                    connection->READ(connection->GetFd(),
+                    connection->READ(connection->GetSocket(),
                                      buf);
                 }
                 else if (event->type == SequentialEventExecutor::ExcuteEvent::EventType::ACCEPT_CONNECTION)
-                    connection->ACCEPT(connection->GetFd(),
+                    connection->ACCEPT(connection->GetSocket(),
                                        event->accept_info.client_fd, event->accept_info.client_addr);
                 else if (event->type == SequentialEventExecutor::ExcuteEvent::EventType::READ_HUP)
                 {

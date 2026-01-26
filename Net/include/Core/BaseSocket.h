@@ -12,7 +12,7 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 using BaseSocket = int;
-#else _WIN32
+#elif _WIN32
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #include <Mswsock.h>

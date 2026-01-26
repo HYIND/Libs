@@ -134,7 +134,7 @@ bool CustomTcpSession::Connect(const std::string &IP, uint16_t Port)
     return Base::Connect(IP, Port);
 }
 
-#ifdef _linux_
+#ifdef __linux__
 Task<bool> CustomTcpSession::ConnectAsync(const std::string &IP, uint16_t Port)
 {
     co_return co_await Base::ConnectAsync(IP, Port);
@@ -414,7 +414,7 @@ bool CustomTcpSession::TryHandshake(uint32_t timeOutMs)
                                     { return isHandshakeComplete; });
 }
 
-#ifdef _linux_
+#ifdef __linux__
 Task<bool> CustomTcpSession::TryHandshakeAsync(uint32_t timeOutMs)
 {
     Buffer token(CustomProtocolTryToken, sizeof(CustomProtocolTryToken) - 1);
@@ -482,7 +482,7 @@ CheckHandshakeStatus CustomTcpSession::CheckHandshakeConfirmMsg(Buffer &buffer)
 
     isHandshakeComplete = true;
 
-#ifdef _linux_
+#ifdef __linux__
     LockGuard lock(_Colock);
     if (_handshaketimeout)
         _handshaketimeout->wake();

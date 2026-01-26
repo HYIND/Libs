@@ -2,7 +2,7 @@
 
 BaseNetWorkSession::BaseNetWorkSession()
 	: isHandshakeComplete(false)
-#ifdef _linux_
+#ifdef __linux__
 	, _handshaketimeout(nullptr)
 #endif
 {
@@ -13,7 +13,7 @@ BaseNetWorkSession::~BaseNetWorkSession()
 	isHandshakeComplete = false;
 	_callbackRecvData = nullptr;
 	_callbackSessionClose = nullptr;
-#ifdef _linux_
+#ifdef __linux__
 	if (_handshaketimeout)
 		SAFE_DELETE(_handshaketimeout);
 #endif
@@ -40,7 +40,7 @@ bool BaseNetWorkSession::Connect(const std::string& IP, uint16_t Port)
 	return true;
 }
 
-#ifdef _linux_
+#ifdef __linux__
 Task<bool> BaseNetWorkSession::ConnectAsync(const std::string& IP, uint16_t Port)
 {
 	Release();

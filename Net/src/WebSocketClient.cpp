@@ -43,7 +43,7 @@ bool WebSocketClient::Connect(const std::string &IP, uint16_t Port)
     return true;
 }
 
-#ifdef _linux_
+#ifdef __linux__
 Task<bool> WebSocketClient::ConnectAsync(const std::string &IP, uint16_t Port)
 {
     if (!co_await Base::ConnectAsync(IP, Port))
@@ -204,7 +204,7 @@ bool WebSocketClient::TryHandshake(uint32_t timeOutMs)
                                     { return isHandshakeComplete; });
 }
 
-#ifdef _linux_
+#ifdef __linux__
 Task<bool> WebSocketClient::TryHandshakeAsync(uint32_t timeOutMs)
 {
     std::string request;
@@ -291,7 +291,7 @@ CheckHandshakeStatus WebSocketClient::CheckHandshakeConfirmMsg(Buffer &buffer)
 
         isHandshakeComplete = true;
 
-#ifdef _linux_
+#ifdef __linux__
         LockGuard lock(_Colock);
         if (_handshaketimeout)
             _handshaketimeout->wake();

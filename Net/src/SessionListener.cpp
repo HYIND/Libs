@@ -40,7 +40,7 @@ NetWorkSessionListener::NetWorkSessionListener(SessionType type)
 	}
 	BaseListener.BindEstablishConnectionCallBack(std::bind(&NetWorkSessionListener::RecvClient, this, std::placeholders::_1));
 	// 定期检测过期连接
-#ifdef _linux_
+#ifdef __linux__
 	CleanExpiredTask = TimerTask::CreateRepeat("TcpEndPointListener::CleanExpiredClient",
 		30 * 1000,
 		std::bind(&NetWorkSessionListener::CleanExpiredSession, this),
@@ -51,7 +51,7 @@ NetWorkSessionListener::NetWorkSessionListener(SessionType type)
 
 NetWorkSessionListener::~NetWorkSessionListener()
 {
-#ifdef _linux_
+#ifdef __linux__
 	if (CleanExpiredTask)
 	{
 		CleanExpiredTask->Clean();

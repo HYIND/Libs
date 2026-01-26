@@ -20,7 +20,7 @@ public:
 	void BindAcceptCallBack(std::function<void(std::shared_ptr<TCPTransportConnection>)> callback);
 
 protected:
-#ifdef _linux_
+#ifdef __linux__
 	virtual void OnREAD(BaseSocket socket);									// 可读事件
 	virtual void OnACCEPT(BaseSocket socket);									// 接受新连接事件
 #endif

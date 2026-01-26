@@ -25,7 +25,7 @@ BOOL WINAPI CtrlHandler(DWORD dwCtrlType) {
 		return FALSE;
 	}
 }
-#elif _linux_
+#elif __linux__
 void signal_handler(int sig)
 {
 	if (sig == SIGINT)
@@ -161,7 +161,7 @@ int main(int argc, char* argv[])
 		printf("Failed to set control handler\n");
 		return 1;
 	}
-#elif _linux_
+#elif __linux__
 	struct sigaction sa;
 	sa.sa_handler = signal_handler;
 	sa.sa_flags = 0;

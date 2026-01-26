@@ -16,7 +16,7 @@ public:
 	TCPTransportConnection();
 	~TCPTransportConnection();
 	bool Connect(const std::string& IP, uint16_t Port);
-#ifdef _linux_
+#ifdef __linux__
 	Task<bool> ConnectAsync(const std::string& IP, uint16_t Port);
 #endif
 	void Apply(const BaseSocket fd, const sockaddr_in& sockaddr, const SocketType type);
@@ -31,7 +31,7 @@ public:
 	CriticalSectionLock& GetSendMtx();
 
 protected:
-#ifdef _linux_
+#ifdef __linux__
 	virtual void OnREAD(BaseSocket socket);									// 可读事件
 	virtual void OnACCEPT(BaseSocket socket);									// 接受新连接事件
 #endif

@@ -29,7 +29,7 @@ private:
 	TCPNetProtocol _Protocol;
 	std::function<void(TCPEndPoint*)> _callBackEstablish;
 	SafeArray<std::shared_ptr<ClientData>> waitClients; // 等待校验协议的客户端
-#ifdef _linux_
+#ifdef __linux__
 	std::shared_ptr<TimerTask> CleanExpiredTask;
 #endif
 };

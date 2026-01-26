@@ -3,7 +3,7 @@
 
 using namespace std;
 
-#ifdef _linux
+#ifdef __linux__
 BaseSocket NewClientSocket(const std::string& IP, uint16_t port, __socket_type protocol, sockaddr_in& sock_addr)
 {
 	memset(&sock_addr, '0', sizeof(sock_addr));
@@ -12,7 +12,7 @@ BaseSocket NewClientSocket(const std::string& IP, uint16_t port, __socket_type p
 
 	sock_addr.sin_addr.s_addr = inet_addr(IP.c_str());
 
-	return socket(PF_INET, protocol, 0);
+	return ::socket(PF_INET, protocol, 0);
 }
 
 #elif _WIN32
@@ -60,7 +60,7 @@ bool TCPTransportConnection::Connect(const std::string& IP, uint16_t Port)
 	return true;
 }
 
-#ifdef _linux_
+#ifdef __linux__
 Task<bool> TCPTransportConnection::ConnectAsync(const std::string& IP, uint16_t Port)
 {
 	if (ValidSocket())
@@ -165,8 +165,8 @@ void TCPTransportConnection::BindRDHUPCallBack(function<void(TCPTransportConnect
 SafeQueue<Buffer*>& TCPTransportConnection::GetSendData() { return _SendDatas; }
 CriticalSectionLock& TCPTransportConnection::GetSendMtx() { return _SendResMtx; }
 
-#ifdef _linux_
-void TCPTransportConnection::OnREAD(int fd)
+#ifdef __linux__
+void TCPTransportConnection::OnREAD(BaseSocket socket)
 {
 	auto read = [&](Buffer& buf, int length) -> bool
 		{
@@ -177,7 +177,7 @@ void TCPTransportConnection::OnREAD(int fd)
 			int trycount = 10;
 			while (trycount > 0)
 			{
-				int result = ::recv(_fd, ((char*)buf.Data()) + (length - remaind), remaind, 0);
+				int result = ::recv(_socket, ((char*)buf.Data()) + (length - remaind), remaind, 0);
 				if ((remaind - result) == 0)
 				{
 					return true;
@@ -239,7 +239,7 @@ void TCPTransportConnection::OnREAD(int fd)
 	std::lock_guard<SpinLock> lock(_ProcessLock);
 	ProcessRecvQueue();
 }
-void TCPTransportConnection::OnACCEPT(int fd) {}
+void TCPTransportConnection::OnACCEPT(BaseSocket socket) {}
 #endif
 
 void TCPTransportConnection::OnREAD(BaseSocket socket, Buffer& buf)

@@ -3,7 +3,7 @@
 
 using namespace std;
 
-#ifdef _linux_
+#ifdef __linux__
 BaseSocket NewServerSocket(const std::string& IP, uint16_t port, __socket_type protocol, sockaddr_in& sock_addr)
 {
 	memset(&sock_addr, '0', sizeof(sock_addr));
@@ -12,7 +12,7 @@ BaseSocket NewServerSocket(const std::string& IP, uint16_t port, __socket_type p
 
 	sock_addr.sin_addr.s_addr = inet_addr(IP.c_str());
 
-	BaseSocket socket = socket(PF_INET, protocol, 0);
+	BaseSocket socket = ::socket(PF_INET, protocol, 0);
 
 	int result = 0;
 	result = ::bind(socket, (struct sockaddr*)&sock_addr, sizeof(struct sockaddr));
@@ -102,7 +102,7 @@ void TCPTransportListener::BindAcceptCallBack(std::function<void(std::shared_ptr
 	this->_callbackAccept = callback;
 }
 
-#ifdef _linux_
+#ifdef __linux__
 void TCPTransportListener::OnREAD(BaseSocket socket)
 {
 }
@@ -119,7 +119,7 @@ void TCPTransportListener::OnACCEPT(BaseSocket socket)
 			if (clientSocket != Invaild_Socket)
 			{
 				std::shared_ptr<TCPTransportConnection> client = std::make_shared<TCPTransportConnection>();
-				client->Apply(clientFd, addr, this->_type);
+				client->Apply(clientSocket, addr, this->_type);
 				// cout << "tcpclient connect ,address: " << inet_ntoa(addr.sin_addr) << ":" << ntohs(addr.sin_port) << endl;
 				if (_callbackAccept)
 					_callbackAccept(client);

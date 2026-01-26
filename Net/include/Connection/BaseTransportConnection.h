@@ -37,7 +37,7 @@
 #include "SpinLock.h"
 #include "Core/DeleteLater.h"
 
-#ifdef _linux_
+#ifdef __linux__
 #include "Coroutine.h"
 #endif
 
@@ -84,7 +84,7 @@ public:
 	bool isOnCallback();
 
 public:
-#ifdef _linux_
+#ifdef __linux__
 	void READ(BaseSocket fd);
 	void ACCEPT(BaseSocket fd);
 #endif
@@ -93,7 +93,7 @@ public:
 	void RDHUP();
 
 protected:
-#ifdef _linux_
+#ifdef __linux__
 	virtual void OnREAD(BaseSocket socket) = 0;												// 可读事件
 	virtual void OnACCEPT(BaseSocket socket) = 0;											// 接受新连接事件
 #endif

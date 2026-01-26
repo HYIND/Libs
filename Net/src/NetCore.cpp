@@ -28,7 +28,7 @@ NET_API void StopNetCoreLoop()
 	}
 }
 
-#ifdef _linux_
+#ifdef __linux__
 #if defined(IO_URING_ON)
 #include "Core/IOuringCore.h"
 #define NetCore IOuringCoreProcess::Instance()
