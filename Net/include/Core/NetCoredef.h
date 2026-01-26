@@ -8,10 +8,15 @@
 
 // #define IO_URING_ON
 
+#ifdef __linux__
 #if defined(IO_URING_ON)
 #include "Core/IOuringCore.h"
 #define NetCore IOuringCoreProcess::Instance()
 #else
 #include "Core/EpollCore.h"
 #define NetCore EpollCoreProcess::Instance()
+#endif
+#elif _WIN32
+#include "Core/IOCPCore.h"
+#define NetCore IOCPCoreProcess::Instance()
 #endif

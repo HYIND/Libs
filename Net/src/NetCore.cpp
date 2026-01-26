@@ -2,21 +2,25 @@
 
 using namespace std;
 
-void InitNetCore()
+NET_API void InitNetCore()
 {
+#ifdef _WIN32
+	WSADATA wsa;
+	WSAStartup(MAKEWORD(2, 2), &wsa);
+#endif
 }
 
-bool NetCoreRunning()
+NET_API bool NetCoreRunning()
 {
 	return NetCore->Running();
 }
 
-void DeleteLater(DeleteLaterImpl *ptr)
+NET_API void DeleteLater(DeleteLaterImpl* ptr)
 {
 	NetCore->AddPendingDeletion(ptr);
 }
 
-void StopNetCoreLoop()
+NET_API void StopNetCoreLoop()
 {
 	if (NetCoreRunning())
 	{
@@ -24,10 +28,11 @@ void StopNetCoreLoop()
 	}
 }
 
+#ifdef _linux_
 #if defined(IO_URING_ON)
 #include "Core/IOuringCore.h"
 #define NetCore IOuringCoreProcess::Instance()
-void RunNetCoreLoop(bool isBlock)
+NET_API void RunNetCoreLoop(bool isBlock)
 {
 	if (!NetCore->Running())
 	{
@@ -42,11 +47,27 @@ void RunNetCoreLoop(bool isBlock)
 	}
 }
 #else
-void RunNetCoreLoop(bool isBlock)
+NET_API void RunNetCoreLoop(bool isBlock)
 {
 	if (!NetCoreRunning())
 	{
 		thread CoreThread(&EpollCoreProcess::Run, EpollCoreProcess::Instance());
+		if (isBlock)
+			CoreThread.join();
+		else
+		{
+			this_thread::sleep_for(std::chrono::milliseconds(500));
+			CoreThread.detach();
+		}
+	}
+}
+#endif
+#elif _WIN32
+NET_API void RunNetCoreLoop(bool isBlock)
+{
+	if (!NetCoreRunning())
+	{
+		thread CoreThread(&IOCPCoreProcess::Run, IOCPCoreProcess::Instance());
 		if (isBlock)
 			CoreThread.join();
 		else

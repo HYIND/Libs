@@ -2,140 +2,169 @@
 #include "Session/CustomTcpSession.h"
 #include "Session/SessionListener.h"
 #include "Core/NetCore.h"
-#include "fmt/core.h"
 #include <iostream>
 #include <atomic>
 
 using namespace std;
 
+#ifdef _WIN32
+BOOL WINAPI CtrlHandler(DWORD dwCtrlType) {
+	switch (dwCtrlType) {
+	case CTRL_C_EVENT:
+	case CTRL_BREAK_EVENT:
+	case CTRL_CLOSE_EVENT:
+		StopNetCoreLoop();
+		ExitProcess(0);
+		return TRUE;
+
+	default:
+		return FALSE;
+	}
+}
+#elif _linux_
 void signal_handler(int sig)
 {
-    if (sig == SIGINT)
-    {
-        StopNetCoreLoop();
-    }
+	if (sig == SIGINT)
+	{
+		StopNetCoreLoop();
+		exit(0);
+	}
 }
+#endif
 
 class EchoServer
 {
 public:
-    EchoServer()
-    {
-        listener = std::make_unique<NetWorkSessionListener>(SessionType::CustomTCPSession);
-        listener->BindSessionEstablishCallBack(std::bind(&EchoServer::PrintSessionEstablish, this, placeholders::_1));
-    }
-    ~EchoServer()
-    {
-        sessions.EnsureCall(
-            [&](std::vector<BaseNetWorkSession *> &array) -> void
-            {
-                for (auto it = array.begin(); it != array.end(); it++)
-                {
-                    auto session = *it;
-                    array.erase(it);
-                    DeleteLater(session);
-                }
-            });
-    }
+	EchoServer()
+	{
+		listener = std::make_unique<NetWorkSessionListener>(SessionType::CustomTCPSession);
+		listener->BindSessionEstablishCallBack(std::bind(&EchoServer::PrintSessionEstablish, this, placeholders::_1));
+	}
+	~EchoServer()
+	{
+		sessions.EnsureCall(
+			[&](std::vector<BaseNetWorkSession*>& array) -> void
+			{
+				for (auto it = array.begin(); it != array.end(); it++)
+				{
+					auto session = *it;
+					array.erase(it);
+					DeleteLater(session);
+				}
+			});
+	}
 
 public:
-    void PrintSessionEstablish(BaseNetWorkSession *session)
-    {
-        cout << fmt::format("SessionEstablish:RemoteAddr={}:{} \n",
-                            session->GetIPAddr(), session->GetPort());
-        session->BindRecvDataCallBack(std::bind(&EchoServer::EchoMessage, this, placeholders::_1, placeholders::_2));
-        session->BindSessionCloseCallBack(std::bind(&EchoServer::PrintCloseConnect, this, placeholders::_1));
+	void PrintSessionEstablish(BaseNetWorkSession* session)
+	{
+		cout << "SessionEstablish:RemoteAddr=" << session->GetIPAddr()
+			<< ":" << session->GetPort() << " \n";
 
-        if (CustomTcpSession *customtcpsession = dynamic_cast<CustomTcpSession *>(session))
-        {
-            customtcpsession->BindRecvRequestCallBack(std::bind(&EchoServer::EchoRequestMessage, this, placeholders::_1, placeholders::_2, placeholders::_3));
-        }
+		session->BindRecvDataCallBack(std::bind(&EchoServer::EchoMessage, this, placeholders::_1, placeholders::_2));
+		session->BindSessionCloseCallBack(std::bind(&EchoServer::PrintCloseConnect, this, placeholders::_1));
 
-        sessions.emplace(session);
-    }
+		if (CustomTcpSession* customtcpsession = dynamic_cast<CustomTcpSession*>(session))
+		{
+			customtcpsession->BindRecvRequestCallBack(std::bind(&EchoServer::EchoRequestMessage, this, placeholders::_1, placeholders::_2, placeholders::_3));
+		}
 
-    void EchoMessage(BaseNetWorkSession *basesession, Buffer *recv)
-    {
-        CustomTcpSession *session = (CustomTcpSession *)basesession;
+		sessions.emplace(session);
+	}
 
-        cout << fmt::format("EchoServer recvData:RemoteAddr={}:{}, data:{} \n",
-                            session->GetIPAddr(), session->GetPort(), std::string(recv->Byte(), recv->Length()));
+	void EchoMessage(BaseNetWorkSession* basesession, Buffer* recv)
+	{
+		CustomTcpSession* session = (CustomTcpSession*)basesession;
 
-        // Echo
-        session->AsyncSend(*recv);
-    }
+		string data(recv->Byte(), recv->Length());
+		cout << "EchoServer recvData:RemoteAddr=" << session->GetIPAddr()
+			<< ":" << session->GetPort()
+			<< ", data:" << data << " \n";
 
-    void EchoRequestMessage(BaseNetWorkSession *basesession, Buffer *recv, Buffer *resp)
-    {
-        CustomTcpSession *session = (CustomTcpSession *)basesession;
+		// Echo
+		session->AsyncSend(*recv);
+	}
 
-        cout << fmt::format("EchoServer recvData:RemoteAddr={}:{}, data:{} \n",
-                            session->GetIPAddr(), session->GetPort(), std::string(recv->Byte(), recv->Length()));
+	void EchoRequestMessage(BaseNetWorkSession* basesession, Buffer* recv, Buffer* resp)
+	{
+		CustomTcpSession* session = (CustomTcpSession*)basesession;
 
-        // Echo
-        resp->CopyFromBuf(*recv);
-        return;
-    }
+		string data(recv->Byte(), recv->Length());
 
-    void PrintCloseConnect(BaseNetWorkSession *session)
-    {
+		cout << "EchoServer recvData:RemoteAddr=" << session->GetIPAddr()
+			<< ":" << session->GetPort()
+			<< ", data:" << data << " \n";
 
-        cout << fmt::format("EchoServer ClientConn Close: RemoteIpAddr={}:{} \n",
-                            session->GetIPAddr(), session->GetPort());
+		// Echo
+		resp->CopyFromBuf(*recv);
+		return;
+	}
 
-        sessions.EnsureCall(
-            [&](std::vector<BaseNetWorkSession *> &array) -> void
-            {
-                for (auto it = array.begin(); it != array.end(); it++)
-                {
-                    if ((*it) == session)
-                    {
-                        array.erase(it);
-                        return;
-                    }
-                }
-            }
+	void PrintCloseConnect(BaseNetWorkSession* session)
+	{
 
-        );
+		cout << "EchoServer ClientConn Close: RemoteIpAddr=" << session->GetIPAddr()
+			<< ":" << session->GetPort() << " \n";
 
-        DeleteLater(session);
-    }
+		sessions.EnsureCall(
+			[&](std::vector<BaseNetWorkSession*>& array) -> void
+			{
+				for (auto it = array.begin(); it != array.end(); it++)
+				{
+					if ((*it) == session)
+					{
+						array.erase(it);
+						return;
+					}
+				}
+			}
 
-    bool Listen(const std::string &IP, int Port)
-    {
-        if (!listener->Listen(IP, Port))
-        {
-            perror("listen error !");
-            return false;
-        }
-        return true;
-    }
+		);
+
+		DeleteLater(session);
+	}
+
+	bool Listen(const std::string& IP, int Port)
+	{
+		if (!listener->Listen(IP, Port))
+		{
+			perror("listen error !");
+			return false;
+		}
+		return true;
+	}
 
 private:
-    std::unique_ptr<NetWorkSessionListener> listener;
-    SafeArray<BaseNetWorkSession *> sessions;
+	std::unique_ptr<NetWorkSessionListener> listener;
+	SafeArray<BaseNetWorkSession*> sessions;
 };
 
 int main()
 {
-    struct sigaction sa;
-    sa.sa_handler = signal_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    sigaction(SIGINT, &sa, NULL);
+#ifdef _WIN32
+	if (!SetConsoleCtrlHandler(CtrlHandler, TRUE)) {
+		printf("Failed to set control handler\n");
+		return 1;
+	}
+#elif _linux_
+	struct sigaction sa;
+	sa.sa_handler = signal_handler;
+	sa.sa_flags = 0;
+	sigemptyset(&sa.sa_mask);
+#endif
 
-    InitNetCore();
+	InitNetCore();
 
-    std::string IP = "192.168.58.130";
-    int Port = 5555;
+	std::string IP = "127.0.0.1";
+	int Port = 5555;
 
-    EchoServer server;
-    if (!server.Listen(IP, Port))
-    {
-        std::cout << "EchoServer Listen [" << IP << ":" << Port << "] fail!\n";
-        return -1;
-    }
-    std::cout << "EchoServer Listen [" << IP << ":" << Port << "] success!\n";
+	EchoServer server;
+	if (!server.Listen(IP, Port))
+	{
+		std::cout << "EchoServer Listen [" << IP << ":" << Port << "] fail!\n";
+		system("pause");
+		return -1;
+	}
+	std::cout << "EchoServer Listen [" << IP << ":" << Port << "] success!\n";
 
-    RunNetCoreLoop(true);
+	RunNetCoreLoop(true);
 }

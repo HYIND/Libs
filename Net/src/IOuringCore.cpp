@@ -1,7 +1,4 @@
-#include <sys/eventfd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <liburing.h>
+
 #include "Core/NetCoredef.h"
 #include "Core/IOuringCore.h"
 #include "ResourcePool.h"
@@ -21,7 +18,7 @@
 #define SENDBUFFERCONCATMAXLEN 1024 * 1024
 #define RECVBUFFERCONCATMAXLEN 1024 * 1024
 
-static int shutdown_eventfd = -1;
+static BaseSocket shutdown_eventfd = -1;
 
 enum class IOUring_OPType
 {
@@ -34,7 +31,7 @@ enum class IOUring_OPType
 struct IOuringOPData
 {
     IOUring_OPType OP_Type;
-    int fd;
+    BaseSocket fd;
     std::weak_ptr<BaseTransportConnection> weakCon;
     BaseTransportConnection *raw_ptr;
 
@@ -89,7 +86,7 @@ class IOuringCoreProcessImpl
 private:
     struct NetCore_IOuringData
     {
-        int fd;
+        BaseSocket fd;
         std::weak_ptr<BaseTransportConnection> weakCon;
         std::vector<std::shared_ptr<SequentialIOSubmitter>> senders; // IO流水线
         std::shared_ptr<SequentialEventExecutor> recver;             // 事件处理流水线（包含ACCEPT）
@@ -224,7 +221,7 @@ int64_t GetTimestampMilliseconds()
     return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 }
 
-static void setnonblocking(int fd)
+static void setnonblocking(BaseSocket fd)
 {
     fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
 }
@@ -248,7 +245,7 @@ struct IOuringCoreProcessImpl::SequentialEventExecutor::ExcuteEvent
     std::shared_ptr<Buffer> data;
     struct
     {
-        int client_fd;
+        BaseSocket client_fd;
         sockaddr_in client_addr;
     } accept_info;
 
@@ -260,7 +257,7 @@ struct IOuringCoreProcessImpl::SequentialEventExecutor::ExcuteEvent
     }
 
     static std::shared_ptr<ExcuteEvent> CreateReadEvent(std::shared_ptr<NetCore_IOuringData> iodata, Buffer &buf);
-    static std::shared_ptr<ExcuteEvent> CreateAcceptEvent(std::shared_ptr<NetCore_IOuringData> iodata, int client_fd, sockaddr_in client_addr);
+    static std::shared_ptr<ExcuteEvent> CreateAcceptEvent(std::shared_ptr<NetCore_IOuringData> iodata, BaseSocket client_fd, sockaddr_in client_addr);
     static std::shared_ptr<ExcuteEvent> CreateRDHUP(std::shared_ptr<NetCore_IOuringData> iodata);
 };
 
@@ -279,7 +276,7 @@ public:
     {
         data->Reset();
     }
-    IOuringOPData *AllocateData(IOUring_OPType OP_Type, int fd, std::shared_ptr<BaseTransportConnection> Con, uint32_t buffersize = RECVBUFFERDEFLEN)
+    IOuringOPData *AllocateData(IOUring_OPType OP_Type, BaseSocket fd, std::shared_ptr<BaseTransportConnection> Con, uint32_t buffersize = RECVBUFFERDEFLEN)
     {
         IOuringOPData *data = ResPool<IOuringOPData>::AllocateData();
         data->OP_Type = OP_Type;
@@ -563,7 +560,7 @@ IOuringCoreProcessImpl::SequentialEventExecutor::ExcuteEvent::CreateReadEvent(st
 }
 
 std::shared_ptr<IOuringCoreProcessImpl::SequentialEventExecutor::ExcuteEvent>
-IOuringCoreProcessImpl::SequentialEventExecutor::ExcuteEvent::CreateAcceptEvent(std::shared_ptr<NetCore_IOuringData> iodata, int client_fd, sockaddr_in client_addr)
+IOuringCoreProcessImpl::SequentialEventExecutor::ExcuteEvent::CreateAcceptEvent(std::shared_ptr<NetCore_IOuringData> iodata, BaseSocket client_fd, sockaddr_in client_addr)
 {
     std::shared_ptr<ExcuteEvent> event = std::make_shared<ExcuteEvent>(EventType::ACCEPT_CONNECTION, iodata);
     event->accept_info.client_fd = client_fd;
@@ -717,7 +714,9 @@ IOuringCoreProcessImpl::IOuringCoreProcessImpl()
         _isinitsuccess = false;
         perror("io_uring_queue_init fail!");
     }
-    _isinitsuccess = true;
+    else 
+        _isinitsuccess = true;
+
     if (shutdown_eventfd < 0)
     {
         shutdown_eventfd = eventfd(0, EFD_NONBLOCK);
@@ -863,7 +862,7 @@ bool IOuringCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> Ba
     if (!lock.isownlock())
         return true; // 写锁正在被其他线程占用
 
-    int fd = Con->GetFd();
+    BaseSocket fd = Con->GetSocket();
     SafeQueue<Buffer *> &SendDatas = Con->GetSendData();
 
     std::shared_ptr<NetCore_IOuringData> iodata;
@@ -871,7 +870,7 @@ bool IOuringCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> Ba
     {
         iodata = std::make_shared<NetCore_IOuringData>();
         auto weak = std::weak_ptr<BaseTransportConnection>(BaseCon);
-        iodata->fd = Con->GetFd();
+        iodata->fd = Con->GetSocket();
         iodata->weakCon = weak;
         iodata->senders.emplace_back(std::make_shared<SequentialIOSubmitter>(this, iodata, IOUring_OPType::OP_WRITE));
         iodata->senders.emplace_back(std::make_shared<SequentialIOSubmitter>(this, iodata, IOUring_OPType::OP_READ));
@@ -1029,7 +1028,6 @@ void IOuringCoreProcessImpl::Loop()
 
 bool IOuringCoreProcessImpl::GetDoneIOEvents(std::vector<IOuringOPData *> &opdatas)
 {
-    // 非阻塞检测
     io_uring_cqe *unusecqe = nullptr;
     int ret = io_uring_wait_cqe(&ring, &unusecqe);
     if (ret < 0 && ret != -EINTR)
@@ -1084,7 +1082,7 @@ int IOuringCoreProcessImpl::EventProcess(IOuringOPData *opdata, std::vector<IOur
     }
 
     int res = opdata->res;
-    int fd = opdata->fd;
+    BaseSocket fd = opdata->fd;
     IOUring_OPType OP_Type = opdata->OP_Type;
 
     if (fd <= 0 || !Con->ValidSocket())
@@ -1219,7 +1217,7 @@ int IOuringCoreProcessImpl::EventProcess(IOuringOPData *opdata, std::vector<IOur
     }
     case IOUring_OPType::OP_ACCEPT:
     {
-        int client_fd = res;
+        BaseSocket client_fd = res;
         std::shared_ptr<NetCore_IOuringData> iodata;
         if (_IOUringData.Find(Con.get(), iodata) && iodata)
         {

@@ -3,26 +3,50 @@
 
 using namespace std;
 
-int NewServerSocket(const std::string &IP, uint16_t socket_port, __socket_type protocol, sockaddr_in &sock_addr)
+#ifdef _linux_
+BaseSocket NewServerSocket(const std::string& IP, uint16_t port, __socket_type protocol, sockaddr_in& sock_addr)
 {
 	memset(&sock_addr, '0', sizeof(sock_addr));
 	sock_addr.sin_family = AF_INET;
-	sock_addr.sin_port = htons(socket_port);
+	sock_addr.sin_port = htons(port);
 
 	sock_addr.sin_addr.s_addr = inet_addr(IP.c_str());
 
-	int socket_fd = socket(PF_INET, protocol, 0);
+	BaseSocket socket = socket(PF_INET, protocol, 0);
 
 	int result = 0;
-	result = bind(socket_fd, (struct sockaddr *)&sock_addr, sizeof(struct sockaddr));
+	result = ::bind(socket, (struct sockaddr*)&sock_addr, sizeof(struct sockaddr));
 	if (result)
 	{
 		perror("bind socket error");
-		return -1;
+		return Invaild_Socket;
 	}
 
-	return socket_fd;
+	return socket;
 }
+#elif _WIN32
+BaseSocket NewServerSocket(const std::string& IP, uint16_t port, int protocol, sockaddr_in& sock_addr)
+{
+
+	ZeroMemory(&sock_addr, sizeof(sock_addr));
+	sock_addr.sin_family = AF_INET;
+	sock_addr.sin_port = htons(port);
+
+	inet_pton(AF_INET, IP.c_str(), &(sock_addr.sin_addr.s_addr));
+
+	BaseSocket socket = WSASocket(sock_addr.sin_family, protocol, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
+
+	int result = 0;
+	result = ::bind(socket, (struct sockaddr*)&sock_addr, sizeof(struct sockaddr));
+	if (result)
+	{
+		perror("bind socket error");
+		return Invaild_Socket;
+	}
+
+	return socket;
+}
+#endif
 
 TCPTransportListener::TCPTransportListener() : BaseTransportConnection(SocketType::TCP, false)
 {
@@ -34,24 +58,24 @@ TCPTransportListener::~TCPTransportListener()
 	ReleaseListener();
 }
 
-bool TCPTransportListener::Listen(const string &IP, int Port)
+bool TCPTransportListener::Listen(const string& IP, int Port)
 {
 	if (ValidSocket())
 		ReleaseListener();
 
-	int fd = NewServerSocket(IP, Port, _type == SocketType::UDP ? SOCK_DGRAM : SOCK_STREAM, _addr);
-	if (fd == -1)
+	BaseSocket socket = NewServerSocket(IP, Port, _type == SocketType::UDP ? SOCK_DGRAM : SOCK_STREAM, _addr);
+	if (socket == Invaild_Socket)
 	{
 		perror("Create fd error");
 		return false;
 	}
-	int ret = listen(fd, 5000);
+	int ret = ::listen(socket, 5000);
 	if (ret < 0)
 	{
 		perror("listen socket error");
 		return false;
 	}
-	this->_fd = fd;
+	this->_socket = socket;
 
 	NetCore->AddNetFd(GetBaseShared());
 
@@ -60,11 +84,11 @@ bool TCPTransportListener::Listen(const string &IP, int Port)
 
 bool TCPTransportListener::ReleaseListener()
 {
-	if (close(_fd) == -1)
+	if (CloseSocket(_socket) == -1)
 		return false;
 
 	NetCore->DelNetFd(this);
-	_fd = -1;
+	_socket = Invaild_Socket;
 	return true;
 }
 
@@ -78,25 +102,21 @@ void TCPTransportListener::BindAcceptCallBack(std::function<void(std::shared_ptr
 	this->_callbackAccept = callback;
 }
 
-void TCPTransportListener::OnREAD(int fd)
+#ifdef _linux_
+void TCPTransportListener::OnREAD(BaseSocket socket)
 {
-	OnACCEPT(fd);
-}
-void TCPTransportListener::OnREAD(int fd, Buffer &Buffer)
-{
-	OnACCEPT(fd);
 }
 
-void TCPTransportListener::OnACCEPT(int fd)
+void TCPTransportListener::OnACCEPT(BaseSocket socket)
 {
-	if (fd == this->_fd)
+	if (socket == this->_socket)
 	{
 		while (true)
 		{
 			sockaddr_in addr;
 			socklen_t length = sizeof(sockaddr_in);
-			int clientFd = accept(this->_fd, (struct sockaddr *)&addr, &length);
-			if (clientFd != -1)
+			BaseSocket clientSocket = accept(this->_socket, (struct sockaddr*)&addr, &length);
+			if (clientSocket != Invaild_Socket)
 			{
 				std::shared_ptr<TCPTransportConnection> client = std::make_shared<TCPTransportConnection>();
 				client->Apply(clientFd, addr, this->_type);
@@ -112,16 +132,22 @@ void TCPTransportListener::OnACCEPT(int fd)
 		}
 	}
 }
-void TCPTransportListener::OnACCEPT(int fd, int newclient, sockaddr_in addr)
+#endif
+
+void TCPTransportListener::OnREAD(BaseSocket socket, Buffer& Buffer)
 {
-	if (fd == this->_fd)
+}
+
+void TCPTransportListener::OnACCEPT(BaseSocket socket, BaseSocket newsocket, sockaddr_in addr)
+{
+	if (socket == this->_socket)
 	{
-		if (newclient < 0)
+		if (newsocket <= 0)
 			return;
 
-		int clientFd = newclient;
+		BaseSocket clientSocket = newsocket;
 		std::shared_ptr<TCPTransportConnection> client = std::make_shared<TCPTransportConnection>();
-		client->Apply(clientFd, addr, this->_type);
+		client->Apply(clientSocket, addr, this->_type);
 		// cout << "tcpclient connect ,address: " << inet_ntoa(addr.sin_addr) << ":" << ntohs(addr.sin_port) << endl;
 		if (_callbackAccept)
 			_callbackAccept(client);

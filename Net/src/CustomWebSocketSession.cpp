@@ -44,10 +44,12 @@ bool CustomWebSocketSession::Connect(const std::string &IP, uint16_t Port)
     return Base::Connect(IP, Port);
 }
 
+#ifdef _linux_
 Task<bool> CustomWebSocketSession::ConnectAsync(const std::string &IP, uint16_t Port)
 {
     co_return co_await Base::ConnectAsync(IP, Port);
 }
+#endif
 
 bool CustomWebSocketSession::Release()
 {
@@ -171,10 +173,12 @@ bool CustomWebSocketSession::TryHandshake(uint32_t timeOutMs)
     return true;
 }
 
+#ifdef _linux_
 Task<bool> CustomWebSocketSession::TryHandshakeAsync(uint32_t timeOutMs)
 {
     co_return true;
 }
+#endif
 
 CheckHandshakeStatus CustomWebSocketSession::CheckHandshakeTryMsg(Buffer &buffer)
 {
@@ -228,9 +232,9 @@ void CustomWebSocketSession::ProcessPakage(CustomWebSocketSessionPakage *newPak)
                 while (!task->status == -1 && count < 5)
                 {
                     count++;
-                    usleep(10 * 1000);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 }
-                usleep(5 * 1000);
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 // printf("notify_all , pak->ack:%d\n", pak->ack);
                 task->_cv.notify_all();
             }

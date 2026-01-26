@@ -1,143 +1,177 @@
 #include "Session/CustomTcpSession.h"
 #include "Session/CustomWebSocketSession.h"
 #include "Core/NetCore.h"
-#include "fmt/core.h"
 #include <iostream>
 #include <random>
 #include <chrono>
 
 using namespace std;
 
+#ifdef max
+#undef max
+#endif
+
+#ifdef _WIN32
+BOOL WINAPI CtrlHandler(DWORD dwCtrlType) {
+	switch (dwCtrlType) {
+	case CTRL_C_EVENT:
+	case CTRL_BREAK_EVENT:
+	case CTRL_CLOSE_EVENT:
+		StopNetCoreLoop();
+		ExitProcess(0);
+		return TRUE;
+
+	default:
+		return FALSE;
+	}
+}
+#elif _linux_
 void signal_handler(int sig)
 {
-    if (sig == SIGINT)
-    {
-        StopNetCoreLoop();
-        exit(0);
-    }
+	if (sig == SIGINT)
+	{
+		StopNetCoreLoop();
+		exit(0);
+	}
 }
+#endif
 
 class EchoClient
 {
 public:
-    EchoClient()
-    {
-        session = std::make_unique<CustomTcpSession>();
-    }
-    ~EchoClient()
-    {
-    }
+	EchoClient()
+	{
+		session = std::make_unique<CustomTcpSession>();
+	}
+	~EchoClient()
+	{
+		session->Release();
+	}
 
 public:
-    void PrintMessage(BaseNetWorkSession *basesession, Buffer *recv)
-    {
-        cout << fmt::format("Client RecvData: RemoteIpAddr={}:{}, data:{} \n",
-                            basesession->GetIPAddr(), basesession->GetPort(), std::string(recv->Byte(), recv->Length()));
-    }
+	void PrintMessage(BaseNetWorkSession* basesession, Buffer* recv)
+	{
+		string data(recv->Byte(), recv->Length());
+		cout << "Client RecvData: RemoteIpAddr=" << basesession->GetIPAddr()
+			<< ":" << basesession->GetPort()
+			<< ", data:" << data << " \n";
+	}
 
-    void PrintRequestMessage(BaseNetWorkSession *basesession, Buffer *recv, Buffer *resp)
-    {
-        cout << fmt::format("Client RecvRequest: RemoteIpAddr={}:{}, data:{} \n",
-                            basesession->GetIPAddr(), basesession->GetPort(), std::string(recv->Byte(), recv->Length()));
-        resp->CopyFromBuf(*recv);
-    }
+	void PrintRequestMessage(BaseNetWorkSession* basesession, Buffer* recv, Buffer* resp)
+	{
 
-    void PrintCloseConnect(BaseNetWorkSession *session)
-    {
-        cout << fmt::format("Client Connection Close: RemoteIpAddr={}:{} \n",
-                            session->GetIPAddr(), session->GetPort());
-    }
+		string data(recv->Byte(), recv->Length());
+		cout << "Client RecvRequest: RemoteIpAddr=" << basesession->GetIPAddr()
+			<< ":" << basesession->GetPort()
+			<< ", data:" << data << " \n";
+		resp->CopyFromBuf(*recv);
+	}
 
-    bool ConnectTo(const std::string &IP, uint16_t Port)
-    {
-        {
-            // async
-            isconnected = session->ConnectAsync(IP, Port).sync_wait();
-        }
-        {
-            // sync
-            // result = session->Connect(IP, Port);
-        }
+	void PrintCloseConnect(BaseNetWorkSession* session)
+	{
+		cout << "Client Connection Close: RemoteIpAddr=" << session->GetIPAddr()
+			<< ":" << session->GetPort() << " \n";
+	}
 
-        if (isconnected)
-        {
-            session->BindRecvDataCallBack(std::bind(&EchoClient::PrintMessage, this, std::placeholders::_1, std::placeholders::_2));
-            session->BindRecvRequestCallBack(std::bind(&EchoClient::PrintRequestMessage, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
-            session->BindSessionCloseCallBack(std::bind(&EchoClient::PrintCloseConnect, this, std::placeholders::_1));
-        }
-        return isconnected;
-    }
+	bool ConnectTo(const std::string& IP, uint16_t Port)
+	{
+		{
+			// async
+			//isconnected = session->ConnectAsync(IP, Port).sync_wait();
 
-    bool SendMsg(const std::string &msg)
-    {
-        return session->AsyncSend(Buffer(msg));
-    }
+		}
+		{
+			// sync
+			isconnected = session->Connect(IP, Port);
+		}
 
-    bool isConnect()
-    {
-        return isconnected;
-    }
+		if (isconnected)
+		{
+			session->BindRecvDataCallBack(std::bind(&EchoClient::PrintMessage, this, std::placeholders::_1, std::placeholders::_2));
+			session->BindRecvRequestCallBack(std::bind(&EchoClient::PrintRequestMessage, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+			session->BindSessionCloseCallBack(std::bind(&EchoClient::PrintCloseConnect, this, std::placeholders::_1));
+		}
+		return isconnected;
+	}
+
+	bool SendMsg(const std::string& msg)
+	{
+		return session->AsyncSend(Buffer(msg));
+	}
+
+	bool isConnect()
+	{
+		return isconnected;
+	}
 
 public:
-    std::unique_ptr<CustomTcpSession> session;
-    bool isconnected = false;
+	std::unique_ptr<CustomTcpSession> session;
+	bool isconnected = false;
 };
 
 void testNet()
 {
-    std::cout << "NetWork test start...\n";
+	std::string IP = "127.0.0.1";
+	int port = 5555;
 
-    InitNetCore();
-    RunNetCoreLoop();
+	EchoClient client;
+	if (!client.ConnectTo(IP, port))
+	{
+		std::cout << "EchoClient ConnectTo [" << IP << ":" << port << "] fail!\n";
+		system("pause");
+		return;
+	}
+	std::cout << "EchoClient ConnectTo [" << IP << ":" << port << "] success!\n";
 
-    std::string IP = "192.168.58.130";
-    int port = 5555;
+	std::cout << "Enter Message To Server ('stop' or 'exit' or 'quit' if you want to exit)\n";
+	bool stop_requested = false;
+	while (!stop_requested || !client.isConnect())
+	{
+		std::string input;
+		if (std::cin.peek() != EOF)
+		{
+			if (!std::getline(std::cin, input))
+			{
+				if (std::cin.eof())
+				{
+					break;
+				}
+				std::cin.clear();
+				std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+				continue;
+			}
 
-    EchoClient client;
-    if (!client.ConnectTo(IP, port))
-    {
-        std::cout << "EchoClient ConnectTo [" << IP << ":" << port << "] fail!\n";
-        return;
-    }
-    std::cout << "EchoClient ConnectTo [" << IP << ":" << port << "] success!\n";
+			if (input == "stop" || input == "exit" || input == "quit")
+			{
+				break;
+			}
+			if (!input.empty())
+				client.SendMsg(input);
+		}
+	}
 
-    std::cout << "Enter Message To Server ('stop' or 'exit' or 'quit' if you want to exit)\n";
-    bool stop_requested = false;
-    while (!stop_requested || !client.isConnect())
-    {
-        std::string input;
-        if (std::cin.peek() != EOF)
-        {
-            if (!std::getline(std::cin, input))
-            {
-                if (std::cin.eof())
-                {
-                    break;
-                }
-                std::cin.clear();
-                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-                continue;
-            }
-
-            if (input == "stop" || input == "exit" || input == "quit")
-            {
-                break;
-            }
-            if (!input.empty())
-                client.SendMsg(input);
-        }
-    }
-
-    std::cout << "NetWork test end...\n";
+	std::cout << "NetWork test end...\n";
 }
 
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
 
-    struct sigaction sa;
-    sa.sa_handler = signal_handler;
-    sa.sa_flags = 0;
-    sigemptyset(&sa.sa_mask);
+#ifdef _WIN32
+	if (!SetConsoleCtrlHandler(CtrlHandler, TRUE)) {
+		printf("Failed to set control handler\n");
+		return 1;
+	}
+#elif _linux_
+	struct sigaction sa;
+	sa.sa_handler = signal_handler;
+	sa.sa_flags = 0;
+	sigemptyset(&sa.sa_mask);
+#endif
 
-    testNet();
+	std::cout << "NetWork test start...\n";
+
+	InitNetCore();
+	RunNetCoreLoop();
+
+	testNet();
 }

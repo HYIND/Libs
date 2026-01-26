@@ -5,15 +5,15 @@
 #include "Connection/TCPTransportConnection.h"
 #include "BiDirectionalMap.h"
 
-static int shutdown_eventfd = -1;
+static BaseSocket shutdown_eventfd = -1;
 
 using namespace std;
 
-static void setnonblocking(int fd)
+static void setnonblocking(BaseSocket fd)
 {
 	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
 }
-void addfd(int epollfd, int fd, void *ptr, bool nonblock)
+void addfd(int epollfd, BaseSocket fd, void *ptr, bool nonblock)
 {
 	epoll_event event;
 	memset(&event, 0, sizeof(event));
@@ -24,34 +24,34 @@ void addfd(int epollfd, int fd, void *ptr, bool nonblock)
 	if (nonblock)
 		setnonblocking(fd);
 }
-void delfd(int epollfd, int fd)
+void delfd(int epollfd, BaseSocket fd)
 {
 	epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, NULL);
 }
-void updateEvents(int epollfd, int fd, void *ptr, uint32_t events, int op)
+void updateEvents(int epollfd, BaseSocket fd, void *ptr, uint32_t events)
 {
 	struct epoll_event event;
 	memset(&event, 0, sizeof(event));
 	event.data.fd = fd;
 	event.data.ptr = ptr;
 	event.events = events;
-	int r = epoll_ctl(epollfd, EPOLL_CTL_MOD, fd, &event);
+	epoll_ctl(epollfd, EPOLL_CTL_MOD, fd, &event);
 	// exit_if(r, "epoll_ctl failed");
 }
 
 struct NetCore_EpollData
 {
-	int fd;
+	BaseSocket fd;
 	std::weak_ptr<BaseTransportConnection> Con;
 };
 
 // weak包装，防止epoll处理期间EpollData过期
 struct EpollDataWeakWrapper
 {
-	int fd;
+	BaseSocket fd;
 	std::weak_ptr<NetCore_EpollData> weakData;
 
-	EpollDataWeakWrapper(int fd, const std::shared_ptr<NetCore_EpollData> &data);
+	EpollDataWeakWrapper(BaseSocket fd, const std::shared_ptr<NetCore_EpollData> &data);
 };
 
 class EpollCoreProcessImpl
@@ -79,11 +79,11 @@ private:
 	int _epoll = epoll_create(1000);
 	epoll_event _events[1500];
 	SafeMap<BaseTransportConnection *, std::shared_ptr<NetCore_EpollData>> _EpollData;
-	BiDirectionalMap<int, EpollDataWeakWrapper *> _WeakData;
+	BiDirectionalMap<BaseSocket, EpollDataWeakWrapper *> _WeakData;
 	SafeArray<DeleteLaterImpl *> _pendingDeletions;
 };
 
-EpollDataWeakWrapper::EpollDataWeakWrapper(int fd, const std::shared_ptr<NetCore_EpollData> &data)
+EpollDataWeakWrapper::EpollDataWeakWrapper(BaseSocket fd, const std::shared_ptr<NetCore_EpollData> &data)
 	: fd(fd), weakData(data)
 {
 }
@@ -156,33 +156,35 @@ bool EpollCoreProcessImpl::Running()
 
 bool EpollCoreProcessImpl::AddNetFd(std::shared_ptr<BaseTransportConnection> Con)
 {
-	// cout << "AddNetFd fd :" << Con->GetFd() << endl;
-	if (Con->GetFd() <= 0)
+	// cout << "AddNetFd fd :" << Con->GetSocket() << endl;
+	BaseSocket fd = Con->GetSocket();
+	if (Con->GetSocket() <= 0)
 	{
 		return false;
 	}
 	std::shared_ptr<NetCore_EpollData> data = std::make_shared<NetCore_EpollData>();
-	data->fd = Con->GetFd();
+	data->fd = fd;
 	data->Con = Con;
 	_EpollData.Insert(Con.get(), data);
 
 	EpollDataWeakWrapper *weak = nullptr;
-	if (_WeakData.FindByLeft(Con->GetFd(), weak))
+	if (_WeakData.FindByLeft(fd, weak))
 	{
-		_WeakData.EraseByLeft(Con->GetFd());
+		_WeakData.EraseByLeft(fd);
 		SAFE_DELETE(weak);
 	}
-	auto new_weak = new EpollDataWeakWrapper(Con->GetFd(), data);
-	_WeakData.Insert(Con->GetFd(), new_weak);
-	addfd(_epoll, Con->GetFd(), new_weak, true);
+	auto new_weak = new EpollDataWeakWrapper(fd, data);
+	_WeakData.Insert(fd, new_weak);
+	addfd(_epoll, fd, new_weak, true);
 
 	return true;
 }
 bool EpollCoreProcessImpl::DelNetFd(BaseTransportConnection *Con)
 {
-	delfd(_epoll, Con->GetFd());
+	BaseSocket fd = Con->GetSocket();
+	delfd(_epoll, fd);
 	_EpollData.Erase(Con);
-	_WeakData.EraseByLeft(Con->GetFd());
+	_WeakData.EraseByLeft(fd);
 	return true;
 }
 
@@ -222,7 +224,7 @@ void EpollCoreProcessImpl::Loop()
 						continue;
 					}
 
-					int weakfd = -1;
+					BaseSocket weakfd = -1;
 					if (_WeakData.FindByRight(wrapper, weakfd))
 					{
 						auto data = wrapper->weakData.lock();
@@ -250,7 +252,7 @@ int EpollCoreProcessImpl::EventProcess(std::shared_ptr<NetCore_EpollData> &data,
 	if (!data)
 		return -1;
 
-	int fd = data->fd;
+	BaseSocket fd = data->fd;
 	auto Con = data->Con.lock();
 	if (!Con)
 	{
@@ -325,7 +327,7 @@ bool EpollCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> Base
 
 	if (!Con->GetSendMtx().TryEnter())
 		return true; // 写锁正在被其他线程占用
-	int fd = Con->GetFd();
+	BaseSocket fd = Con->GetSocket();
 	SafeQueue<Buffer *> &SendDatas = Con->GetSendData();
 
 	std::shared_ptr<NetCore_EpollData> data;
@@ -388,7 +390,7 @@ bool EpollCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> Base
 		{
 			if (result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) // 当前包未写完，但缓冲区已满,或者被系统中断打断
 			{
-				updateEvents(_epoll, fd, wrapper, EPOLLIN | EPOLLOUT | EPOLLRDHUP, EPOLL_CTL_MOD); // 缓冲区已满，则关注其可写事件，等待下次可写事件
+				updateEvents(_epoll, fd, wrapper, EPOLLIN | EPOLLOUT | EPOLLRDHUP); // 缓冲区已满，则关注其可写事件，等待下次可写事件
 				Con->GetSendMtx().unlock();
 				return true;
 			}
@@ -406,11 +408,11 @@ bool EpollCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> Base
 
 	if (SendDatas.empty()) // 待发送数据为空,数据已经发送完，不再关注其可写事件
 	{
-		updateEvents(_epoll, fd, wrapper, EPOLLIN | EPOLLRDHUP, EPOLL_CTL_MOD); // 所有数据发送完毕，不再关注其缓冲区可写事件
+		updateEvents(_epoll, fd, wrapper, EPOLLIN | EPOLLRDHUP); // 所有数据发送完毕，不再关注其缓冲区可写事件
 	}
 	else // 仍有数据未发送,关注其可写事件,等待下次可写事件
 	{
-		updateEvents(_epoll, fd, wrapper, EPOLLIN | EPOLLOUT | EPOLLRDHUP, EPOLL_CTL_MOD);
+		updateEvents(_epoll, fd, wrapper, EPOLLIN | EPOLLOUT | EPOLLRDHUP);
 	}
 
 	Con->GetSendMtx().unlock();
