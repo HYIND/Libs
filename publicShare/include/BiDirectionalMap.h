@@ -209,5 +209,5 @@ public:
 private:
     std::unordered_map<L, R> l_to_r; // 左到右映射
     std::unordered_map<R, L> r_to_l; // 右到左映射
-    CriticalSectionLock mutex;
+    mutable CriticalSectionLock mutex;
 };
