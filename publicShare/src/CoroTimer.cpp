@@ -3,21 +3,21 @@
 
 #ifdef __linux__
 #include "CoroutineScheduler_Linux.h"
-#else 
+#else
 #include "CoroutineScheduler_Win.h"
 #endif
 
 CoTimer::Handle::Handle()
-	: result(CoTimer::WakeType::RUNNING), fd(0), active(true), corodone{ false }
+	: result(CoTimer::WakeType::RUNNING), fd(0), active(true), corodone{false}
 {
 }
 
 CoTimer::Handle::~Handle()
 {
-	if (fd != INVALID_HANDLE_VALUE && fd != 0)
+	if (fd > 0)
 	{
-		CloseHandle(fd);
-		fd = 0;
+		close(fd);
+		fd = -1;
 	}
 }
 
@@ -34,11 +34,11 @@ void CoTimer::Awaiter::await_suspend(std::coroutine_handle<> coro)
 {
 
 	auto trytoresume = [&]() -> void
-		{
-			bool expected = false;
-			if (handle->corodone.compare_exchange_strong(expected, true))
-				coro.resume();
-		};
+	{
+		bool expected = false;
+		if (handle->corodone.compare_exchange_strong(expected, true))
+			coro.resume();
+	};
 
 	if (!handle || !handle->active)
 	{

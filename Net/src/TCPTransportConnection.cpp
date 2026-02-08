@@ -66,23 +66,20 @@ Task<bool> TCPTransportConnection::ConnectAsync(const std::string& IP, uint16_t 
 	if (ValidSocket())
 		Release();
 
-	int fd = NewClientSocket(IP, Port, _type == SocketType::UDP ? SOCK_DGRAM : SOCK_STREAM, _addr);
-	if (fd == -1)
-	{
-		perror("Create fd error");
-		co_return false;
-	}
+	memset(&_addr, '0', sizeof(_addr));
+	_addr.sin_family = AF_INET;
+	_addr.sin_port = htons(Port);
+	_addr.sin_addr.s_addr = inet_addr(IP.c_str());
 
 	// int result = connect(fd, (struct sockaddr *)&_addr, sizeof(struct sockaddr));
-	int result = co_await CoConnection(fd, _addr);
-
+	int result = co_await CoConnection(IP, Port);
 	if (result < 0)
 	{
 		perror("connectAsync socket error");
 		co_return false;
 	}
 
-	this->_socket = fd;
+	this->_socket = result;
 
 	NetCore->AddNetFd(GetBaseShared());
 

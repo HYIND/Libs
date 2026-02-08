@@ -5,6 +5,7 @@
 #include "Coroutine.h"
 #include "string.h"
 #include <sys/timerfd.h>
+#include <arpa/inet.h>
 #include "CoroutineScheduler_Linux.h"
 
 #define SAFE_DELETE(x) \
@@ -43,7 +44,7 @@ struct Coro_IOuringOPData
     Coro_IOuringOPData(Coro_IOUring_OPType OP_Type, std::shared_ptr<TaskHandle> handle)
         : OP_Type(OP_Type), task_handle(handle) {}
     Coro_IOuringOPData(Coro_IOUring_OPType OP_Type, std::shared_ptr<CoConnection::Handle> handle)
-        : OP_Type(OP_Type), connection_handle(handle), fd(handle->fd) {}
+        : OP_Type(OP_Type), connection_handle(handle), fd(handle->socket) {}
     Coro_IOuringOPData(Coro_IOUring_OPType OP_Type, std::shared_ptr<CoTimer::Handle> handle)
         : OP_Type(OP_Type), timer_handle(handle), fd(handle->fd) {}
 };
@@ -315,7 +316,6 @@ int CoroutineScheduler::EventProcess(Coro_IOuringOPData *opdata)
     else if (opdata->OP_Type == Coro_IOUring_OPType::OP_Connect)
     {
         auto handle = opdata->connection_handle;
-        handle->res = opdata->res;
         if (!handle || !handle->active)
             return 1;
 
@@ -460,17 +460,15 @@ std::shared_ptr<CoConnection::Handle> CoroutineScheduler::create_connection(Base
     handle->localaddr = localaddr;
     handle->remoteaddr = remoteaddr;
 
-    if (::bind(fd, (struct sockaddr*)&localaddr, sizeof(struct sockaddr))
+    if (::bind(handle->socket, (struct sockaddr *)&localaddr, sizeof(struct sockaddr)))
     {
         perror("bind socket error");
-        CoCloseSocket(socket);
+        CoCloseSocket(handle->socket);
         handle->active = false;
-        handle->res = 0;
         return handle;
     }
 
-
-    Coro_IOuringOPData* opdata = new Coro_IOuringOPData(Coro_IOUring_OPType::OP_Connect, handle);
+    Coro_IOuringOPData *opdata = new Coro_IOuringOPData(Coro_IOUring_OPType::OP_Connect, handle);
     opdata->fd = fd;
     _optaskqueue.enqueue(opdata);
     _IOEventCV.notify_one();
@@ -512,7 +510,7 @@ bool CoroutineScheduler::SubmitConnectEvent(Coro_IOuringOPData *opdata)
     if (!sqe)
         return false;
 
-    io_uring_prep_connect(sqe, opdata->connection_handle->fd, (struct sockaddr *)&opdata->connection_handle->addr, sizeof(struct sockaddr));
+    io_uring_prep_connect(sqe, opdata->connection_handle->socket, (struct sockaddr *)&opdata->connection_handle->remoteaddr, sizeof(struct sockaddr));
     io_uring_sqe_set_data(sqe, (void *)opdata);
 
     return true;

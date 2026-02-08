@@ -46,11 +46,11 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
     find_library(URING_LIB uring PATHS /usr/lib /usr/local/lib)
 
     if(NOT NET_LIB)
-        message(FATAL_ERROR "libnet.so not found in ${${CMAKE_CURRENT_SOURCE_DIR}}/../bin")
+        message(WARNING "libnet.so not found in ${${CMAKE_CURRENT_SOURCE_DIR}}/../bin")
     endif()
 
     if(NOT PUBLIC_LIB)
-        message(FATAL_ERROR "libpublic.so not found in ${${CMAKE_CURRENT_SOURCE_DIR}}/../bin")
+        message(WARNING "libpublic.so not found in ${${CMAKE_CURRENT_SOURCE_DIR}}/../bin")
     endif()
 
     if(NOT FMT_LIB)

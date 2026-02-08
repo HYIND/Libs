@@ -86,7 +86,7 @@ private:
     epoll_event _events[1500];
 
     CriticalSectionLock _lock;
-    BiDirectionalMap<int, std::shared_ptr<TimerTaskHandle>> _timers;
+    SafeBiDirectionalMap<int, std::shared_ptr<TimerTaskHandle>> _timers;
 };
 
 TimerProcessImpl::TimerProcessImpl()

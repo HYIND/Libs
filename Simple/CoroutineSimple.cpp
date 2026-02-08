@@ -16,13 +16,13 @@ Task<bool> timertask(bool shouwake)
 	CoTimer::WakeType result = co_await timer;
 	if (result == CoTimer::WakeType::Error)
 	{
-		co_return false;
 		std::cout << "CoTimer error!\n";
+		co_return false;
 	}
 	else if (result == CoTimer::WakeType::TIMEOUT)
 	{
-		co_return true;
 		std::cout << "CoTimer timeout!\n";
+		co_return true;
 	}
 	else
 	{

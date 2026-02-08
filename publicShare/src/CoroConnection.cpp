@@ -8,6 +8,7 @@
 
 #ifdef __linux__
 #include <arpa/inet.h>
+#include <cstring>
 #endif
 
 #ifdef __linux__
