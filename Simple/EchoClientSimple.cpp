@@ -75,14 +75,17 @@ public:
 
 	bool ConnectTo(const std::string& IP, uint16_t Port)
 	{
+#ifdef __linux__
 		{
 			// async
 			isconnected = session->ConnectAsync(IP, Port).sync_wait();
 		}
+#elif _WIN32
 		{
 			// sync
-			// isconnected = session->Connect(IP, Port);
+			isconnected = session->Connect(IP, Port);
 		}
+#endif
 
 		if (isconnected)
 		{
@@ -117,7 +120,6 @@ void testNet()
 	if (!client.ConnectTo(IP, port))
 	{
 		std::cout << "EchoClient ConnectTo [" << IP << ":" << port << "] fail!\n";
-		system("pause");
 		return;
 	}
 	std::cout << "EchoClient ConnectTo [" << IP << ":" << port << "] success!\n";
@@ -173,4 +175,7 @@ int main(int argc, char* argv[])
 	RunNetCoreLoop();
 
 	testNet();
+
+	std::cout << "按回车结束程序..." << std::endl;
+	std::cin.get();
 }

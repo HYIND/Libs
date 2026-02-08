@@ -42,4 +42,7 @@ void testTimer()
 int main(int argc, char *argv[])
 {
     testTimer();
+
+    std::cout << "按回车退出程序..." << std::endl;
+    std::cin.get();
 }
