@@ -4,7 +4,7 @@
 using namespace std;
 
 #ifdef __linux__
-BaseSocket NewClientSocket(const std::string& IP, uint16_t port, __socket_type protocol, sockaddr_in& sock_addr)
+BaseSocket NewClientSocket(const std::string &IP, uint16_t port, __socket_type protocol, sockaddr_in &sock_addr)
 {
 	memset(&sock_addr, '0', sizeof(sock_addr));
 	sock_addr.sin_family = AF_INET;
@@ -16,7 +16,7 @@ BaseSocket NewClientSocket(const std::string& IP, uint16_t port, __socket_type p
 }
 
 #elif _WIN32
-BaseSocket NewClientSocket(const std::string& IP, uint16_t port, int protocol, sockaddr_in& sock_addr)
+BaseSocket NewClientSocket(const std::string &IP, uint16_t port, int protocol, sockaddr_in &sock_addr)
 {
 
 	ZeroMemory(&sock_addr, sizeof(sock_addr));
@@ -37,7 +37,7 @@ TCPTransportConnection::~TCPTransportConnection()
 	Release();
 }
 
-bool TCPTransportConnection::Connect(const std::string& IP, uint16_t Port)
+bool TCPTransportConnection::Connect(const std::string &IP, uint16_t Port)
 {
 	if (ValidSocket())
 		Release();
@@ -48,7 +48,7 @@ bool TCPTransportConnection::Connect(const std::string& IP, uint16_t Port)
 		perror("Create fd error");
 		return false;
 	}
-	int result = connect(socket, (struct sockaddr*)&_addr, sizeof(struct sockaddr));
+	int result = connect(socket, (struct sockaddr *)&_addr, sizeof(struct sockaddr));
 	if (result < 0)
 	{
 		perror("connect socket error");
@@ -61,7 +61,7 @@ bool TCPTransportConnection::Connect(const std::string& IP, uint16_t Port)
 }
 
 #ifdef __linux__
-Task<bool> TCPTransportConnection::ConnectAsync(const std::string& IP, uint16_t Port)
+Task<bool> TCPTransportConnection::ConnectAsync(const std::string &IP, uint16_t Port)
 {
 	if (ValidSocket())
 		Release();
@@ -71,9 +71,8 @@ Task<bool> TCPTransportConnection::ConnectAsync(const std::string& IP, uint16_t 
 	_addr.sin_port = htons(Port);
 	_addr.sin_addr.s_addr = inet_addr(IP.c_str());
 
-	// int result = connect(fd, (struct sockaddr *)&_addr, sizeof(struct sockaddr));
 	int result = co_await CoConnection(IP, Port);
-	if (result < 0)
+	if (result <= 0)
 	{
 		perror("connectAsync socket error");
 		co_return false;
@@ -87,7 +86,7 @@ Task<bool> TCPTransportConnection::ConnectAsync(const std::string& IP, uint16_t 
 }
 #endif
 
-void TCPTransportConnection::Apply(const BaseSocket socket, const sockaddr_in& sockaddr, const SocketType type)
+void TCPTransportConnection::Apply(const BaseSocket socket, const sockaddr_in &sockaddr, const SocketType type)
 {
 	if (ValidSocket())
 		Release();
@@ -114,14 +113,14 @@ bool TCPTransportConnection::Release()
 	{
 		std::lock_guard<SpinLock> processlock(_ProcessLock);
 		_callbackBuffer = nullptr;
-		Buffer* buf = nullptr;
+		Buffer *buf = nullptr;
 		while (_RecvDatas.dequeue(buf))
 			SAFE_DELETE(buf);
 	}
 	{
 
 		std::lock_guard<CriticalSectionLock> sendlock(_SendResMtx);
-		Buffer* buf = nullptr;
+		Buffer *buf = nullptr;
 		while (_SendDatas.dequeue(buf))
 			SAFE_DELETE(buf);
 	}
@@ -130,91 +129,91 @@ bool TCPTransportConnection::Release()
 	return result;
 }
 
-bool TCPTransportConnection::Send(const Buffer& buffer)
+bool TCPTransportConnection::Send(const Buffer &buffer)
 {
 	try
 	{
 		if (!buffer.Data() || buffer.Length() < 0)
 			return true;
 
-		Buffer* buf = new Buffer();
+		Buffer *buf = new Buffer();
 		buf->CopyFromBuf(buffer);
 		_SendDatas.enqueue(buf);
 		return NetCore->SendRes(GetBaseShared());
 	}
-	catch (const std::exception& e)
+	catch (const std::exception &e)
 	{
 		std::cerr << e.what() << '\n';
 		return false;
 	}
 }
 
-void TCPTransportConnection::BindBufferCallBack(function<void(TCPTransportConnection*, Buffer*)> callback)
+void TCPTransportConnection::BindBufferCallBack(function<void(TCPTransportConnection *, Buffer *)> callback)
 {
 	_callbackBuffer = callback;
 	OnBindBufferCallBack();
 }
-void TCPTransportConnection::BindRDHUPCallBack(function<void(TCPTransportConnection*)> callback)
+void TCPTransportConnection::BindRDHUPCallBack(function<void(TCPTransportConnection *)> callback)
 {
 	_callbackRDHUP = callback;
 	OnBindRDHUPCallBack();
 }
-SafeQueue<Buffer*>& TCPTransportConnection::GetSendData() { return _SendDatas; }
-CriticalSectionLock& TCPTransportConnection::GetSendMtx() { return _SendResMtx; }
+SafeQueue<Buffer *> &TCPTransportConnection::GetSendData() { return _SendDatas; }
+CriticalSectionLock &TCPTransportConnection::GetSendMtx() { return _SendResMtx; }
 
 #ifdef __linux__
 void TCPTransportConnection::OnREAD(BaseSocket socket)
 {
-	auto read = [&](Buffer& buf, int length) -> bool
-		{
-			if (buf.Length() < length)
-				buf.ReSize(length);
+	auto read = [&](Buffer &buf, int length) -> bool
+	{
+		if (buf.Length() < length)
+			buf.ReSize(length);
 
-			int remaind = length;
-			int trycount = 10;
-			while (trycount > 0)
+		int remaind = length;
+		int trycount = 10;
+		while (trycount > 0)
+		{
+			int result = ::recv(_socket, ((char *)buf.Data()) + (length - remaind), remaind, 0);
+			if ((remaind - result) == 0)
 			{
-				int result = ::recv(_socket, ((char*)buf.Data()) + (length - remaind), remaind, 0);
-				if ((remaind - result) == 0)
+				return true;
+			}
+			if (result <= 0)
+			{
+				if (result < 0)
 				{
-					return true;
-				}
-				if (result <= 0)
-				{
-					if (result < 0)
+					if (errno == EAGAIN || errno == EWOULDBLOCK)
 					{
-						if (errno == EAGAIN || errno == EWOULDBLOCK)
-						{
-							trycount--;
-							continue;
-						}
-						else if (errno == EINTR)
-						{
-							trycount--;
-							continue;
-						}
-						else
-						{
-							buf.ReSize(buf.Length() - remaind);
-							return false;
-						}
+						trycount--;
+						continue;
+					}
+					else if (errno == EINTR)
+					{
+						trycount--;
+						continue;
 					}
 					else
 					{
-						trycount--;
+						buf.ReSize(buf.Length() - remaind);
+						return false;
 					}
 				}
-				remaind -= result;
+				else
+				{
+					trycount--;
+				}
 			}
-			buf.ReSize(buf.Length() - remaind);
-			return false;
-		};
+			remaind -= result;
+		}
+		buf.ReSize(buf.Length() - remaind);
+		return false;
+	};
 
 	int recvcount = 10;
 	while (recvcount > 0)
 	{
 		static int MaxBufferLnegth = 2048;
-		Buffer* buf = new Buffer(MaxBufferLnegth);
+		Buffer *buf = new Buffer(MaxBufferLnegth);
 		bool result = read(*buf, MaxBufferLnegth);
 
 		if (buf->Length() > 0)
@@ -239,10 +238,10 @@ void TCPTransportConnection::OnREAD(BaseSocket socket)
 void TCPTransportConnection::OnACCEPT(BaseSocket socket) {}
 #endif
 
-void TCPTransportConnection::OnREAD(BaseSocket socket, Buffer& buf)
+void TCPTransportConnection::OnREAD(BaseSocket socket, Buffer &buf)
 {
 
-	Buffer* copybuf = new Buffer();
+	Buffer *copybuf = new Buffer();
 	copybuf->CopyFromBuf(buf);
 
 	_RecvDatas.enqueue(copybuf);
@@ -261,7 +260,7 @@ void TCPTransportConnection::OnBindBufferCallBack()
 		{
 			ProcessRecvQueue();
 		}
-		catch (const std::exception& e)
+		catch (const std::exception &e)
 		{
 			std::cerr << e.what() << '\n';
 		}
@@ -277,7 +276,7 @@ void TCPTransportConnection::ProcessRecvQueue()
 {
 	while (!_RecvDatas.empty())
 	{
-		Buffer* buf = nullptr;
+		Buffer *buf = nullptr;
 		if (!_RecvDatas.front(buf))
 			break;
 

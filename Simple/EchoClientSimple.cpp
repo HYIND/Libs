@@ -77,12 +77,11 @@ public:
 	{
 		{
 			// async
-			//isconnected = session->ConnectAsync(IP, Port).sync_wait();
-
+			isconnected = session->ConnectAsync(IP, Port).sync_wait();
 		}
 		{
 			// sync
-			isconnected = session->Connect(IP, Port);
+			// isconnected = session->Connect(IP, Port);
 		}
 
 		if (isconnected)
