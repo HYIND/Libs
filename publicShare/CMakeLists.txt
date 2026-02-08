@@ -38,14 +38,16 @@ list(APPEND ALL_SRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ThreadPool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/FlexThreadPool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ResourcePool.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/CoroTask.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/CoroConnection.cpp
 )
 
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
     list(APPEND ALL_SRC_FILES  ${CMAKE_CURRENT_SOURCE_DIR}/src/Timer.cpp)
-    list(APPEND ALL_SRC_FILES  ${CMAKE_CURRENT_SOURCE_DIR}/src/CoroTask.cpp)
-    list(APPEND ALL_SRC_FILES  ${CMAKE_CURRENT_SOURCE_DIR}/src/CoroutineScheduler.cpp)
     list(APPEND ALL_SRC_FILES  ${CMAKE_CURRENT_SOURCE_DIR}/src/CoroTimer.cpp)
-    list(APPEND ALL_SRC_FILES  ${CMAKE_CURRENT_SOURCE_DIR}/src/CoroConnection.cpp)
+    list(APPEND ALL_SRC_FILES  ${CMAKE_CURRENT_SOURCE_DIR}/src/CoroutineScheduler_Linux.cpp)
+elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
+    list(APPEND ALL_SRC_FILES  ${CMAKE_CURRENT_SOURCE_DIR}/src/CoroutineScheduler_Win.cpp)
 endif()
 
 ADD_LIBRARY(public SHARED ${ALL_SRC_FILES})

@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <mutex>
 #elif defined(_WIN32)
+#define NOMINMAX
 #include <windows.h>
 #endif
 #include <condition_variable>

@@ -1,19 +1,24 @@
 #include "Coroutine.h"
-#include "CoroutineScheduler.h"
 #include <iostream>
 
+#ifdef __linux__
+#include "CoroutineScheduler_Linux.h"
+#else 
+#include "CoroutineScheduler_Win.h"
+#endif
+
 CoTimer::Handle::Handle()
-    : result(CoTimer::WakeType::RUNNING), fd(-1), active(true), corodone{false}
+	: result(CoTimer::WakeType::RUNNING), fd(0), active(true), corodone{ false }
 {
 }
 
 CoTimer::Handle::~Handle()
 {
-    if (fd > 0)
-    {
-        close(fd);
-        fd = -1;
-    }
+	if (fd != INVALID_HANDLE_VALUE && fd != 0)
+	{
+		CloseHandle(fd);
+		fd = 0;
+	}
 }
 
 CoTimer::Awaiter::Awaiter(std::shared_ptr<CoTimer::Handle> handle) : handle(handle)
@@ -22,79 +27,75 @@ CoTimer::Awaiter::Awaiter(std::shared_ptr<CoTimer::Handle> handle) : handle(hand
 
 bool CoTimer::Awaiter::await_ready() const noexcept
 {
-    return !handle || !handle->active;
+	return !handle || !handle->active;
 }
 
 void CoTimer::Awaiter::await_suspend(std::coroutine_handle<> coro)
 {
 
-    auto trytoresume = [&]() -> void
-    {
-        bool expected = false;
-        if (handle->corodone.compare_exchange_strong(expected, true))
-            coro.resume();
-    };
+	auto trytoresume = [&]() -> void
+		{
+			bool expected = false;
+			if (handle->corodone.compare_exchange_strong(expected, true))
+				coro.resume();
+		};
 
-    if (!handle || !handle->active)
-    {
-        trytoresume();
-        return;
-    }
+	if (!handle || !handle->active)
+	{
+		trytoresume();
+		return;
+	}
 
-    if (!handle->active || coro.done())
-    {
-        trytoresume();
-        return;
-    }
+	if (!handle->active || coro.done())
+	{
+		trytoresume();
+		return;
+	}
 
-    {
-        LockGuard lock(handle->corolock);
-        if (!handle->active || coro.done())
-        {
-            trytoresume();
-            return;
-        }
-        handle->coroutine = coro;
-    }
+	{
+		LockGuard lock(handle->corolock);
+		if (!handle->active || coro.done())
+		{
+			trytoresume();
+			return;
+		}
+		handle->coroutine = coro;
+	}
 }
 
 CoTimer::WakeType CoTimer::Awaiter::await_resume() noexcept
 {
-    if (handle)
-    {
-        uint64_t value;
-        ssize_t ret = read(handle->fd, &value, sizeof(value));
-        return handle->result;
-    }
-    return CoTimer::WakeType::Error;
+	if (handle)
+		return handle->result;
+	return CoTimer::WakeType::Error;
 }
 
 CoTimer::CoTimer(std::chrono::milliseconds timeout)
 {
-    handle = CoroutineScheduler::Instance()->create_timer(timeout);
-    if (!handle)
-        std::cerr << "CoTimer create_timer fail!";
+	handle = CoroutineScheduler::Instance()->create_timer(timeout);
+	if (!handle)
+		std::cerr << "CoTimer create_timer fail!";
 }
 
 CoTimer::~CoTimer()
 {
-    wake();
+	wake();
 }
 
 // 协程等待操作
 CoTimer::Awaiter CoTimer::operator co_await()
 {
-    return CoTimer::Awaiter(handle);
+	return CoTimer::Awaiter(handle);
 }
 
 // 立即唤醒
 void CoTimer::wake()
 {
-    if (handle)
-        CoroutineScheduler::Instance()->wake_timer(handle);
+	if (handle)
+		CoroutineScheduler::Instance()->wake_timer(handle);
 }
 
 Task<bool> CoSleep(std::chrono::milliseconds timeout)
 {
-    co_return co_await CoTimer(timeout) == CoTimer::WakeType::TIMEOUT;
+	co_return co_await CoTimer(timeout) == CoTimer::WakeType::TIMEOUT;
 }

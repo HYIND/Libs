@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Coroutine.h"
-#include <liburing.h>
 #include "ThreadPool.h"
+#include <liburing.h>
 
 struct Coro_IOuringOPData;
 
@@ -22,7 +22,7 @@ public: // Task
     std::shared_ptr<TaskHandle> RegisterTaskCoroutine(std::coroutine_handle<> coroutine);
 
 public: // Connect
-    std::shared_ptr<CoConnection::Handle> create_connection(int fd, sockaddr_in addr);
+    std::shared_ptr<CoConnection::Handle> create_connection(BaseSocket socket, sockaddr_in localaddr, sockaddr_in remoteaddr);
 
 private:
     CoroutineScheduler();

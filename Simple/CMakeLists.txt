@@ -8,7 +8,7 @@ option(EchoServerSimple_ON "Enable EchoServerSimple" ON)
 option(EchoClientSimple_ON "Enable EchoClientSimple" ON)
 option(CoroutineSimple_ON "Enable CoroutineSimple" ON)
 option(ThreadPoolSimple_ON "Enable ThreadPoolSimple" ON)
-option(TimerSimple_ON "Enable TimerSimple" ON)
+option(TimerSimple_ON "Enable TimerSimple" OFF)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../bin)
 

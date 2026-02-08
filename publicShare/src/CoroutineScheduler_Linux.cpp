@@ -5,7 +5,7 @@
 #include "Coroutine.h"
 #include "string.h"
 #include <sys/timerfd.h>
-#include "CoroutineScheduler.h"
+#include "CoroutineScheduler_Linux.h"
 
 #define SAFE_DELETE(x) \
     if (x)             \
@@ -453,13 +453,24 @@ std::shared_ptr<TaskHandle> CoroutineScheduler::RegisterTaskCoroutine(std::corou
     return handle;
 }
 
-std::shared_ptr<CoConnection::Handle> CoroutineScheduler::create_connection(int fd, sockaddr_in addr)
+std::shared_ptr<CoConnection::Handle> CoroutineScheduler::create_connection(BaseSocket fd, sockaddr_in localaddr, sockaddr_in remoteaddr)
 {
     auto handle = std::make_shared<CoConnection::Handle>();
-    handle->fd = fd;
-    handle->addr = addr;
+    handle->socket = fd;
+    handle->localaddr = localaddr;
+    handle->remoteaddr = remoteaddr;
 
-    Coro_IOuringOPData *opdata = new Coro_IOuringOPData(Coro_IOUring_OPType::OP_Connect, handle);
+    if (::bind(fd, (struct sockaddr*)&localaddr, sizeof(struct sockaddr))
+    {
+        perror("bind socket error");
+        CoCloseSocket(socket);
+        handle->active = false;
+        handle->res = 0;
+        return handle;
+    }
+
+
+    Coro_IOuringOPData* opdata = new Coro_IOuringOPData(Coro_IOUring_OPType::OP_Connect, handle);
     opdata->fd = fd;
     _optaskqueue.enqueue(opdata);
     _IOEventCV.notify_one();

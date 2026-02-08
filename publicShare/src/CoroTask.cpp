@@ -1,5 +1,10 @@
 #include "Coroutine.h"
-#include "CoroutineScheduler.h"
+
+#ifdef __linux__
+#include "CoroutineScheduler_Linux.h"
+#else 
+#include "CoroutineScheduler_Win.h"
+#endif
 
 bool RegisterTaskAwaiter::await_ready()
 {

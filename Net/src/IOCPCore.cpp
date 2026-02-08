@@ -1,4 +1,4 @@
-
+ï»¿
 #include "Core/NetCoredef.h"
 #include "Core/IOCPCore.h"
 #include "Core/BaseSocket.h"
@@ -62,9 +62,9 @@ struct IOCPOPData
 	WSABUF wsaBuf;
 
 	BaseSocket client_fd;
-	sockaddr_in client_addr; // ¿Í»§¶ËµØÖ·
+	sockaddr_in client_addr; // å®¢æˆ·ç«¯åœ°å€
 
-	DWORD res; // IO²Ù×÷Íê³Éºó£¬Í¨ÖªÇ°Ğ´Èë½á¹û
+	DWORD res; // IOæ“ä½œå®Œæˆåï¼Œé€šçŸ¥å‰å†™å…¥ç»“æœ
 
 	IOCPOPData()
 		: IOCPOPData(IOCP_OPType::OP_READ)
@@ -119,8 +119,8 @@ private:
 	{
 		BaseSocket fd;
 		std::weak_ptr<BaseTransportConnection> weakCon;
-		std::vector<std::shared_ptr<SequentialIOSubmitter>> senders; // IOÁ÷Ë®Ïß
-		std::shared_ptr<SequentialEventExecutor> recver;             // ÊÂ¼ş´¦ÀíÁ÷Ë®Ïß£¨°üº¬ACCEPT£©
+		std::vector<std::shared_ptr<SequentialIOSubmitter>> senders; // IOæµæ°´çº¿
+		std::shared_ptr<SequentialEventExecutor> recver;             // äº‹ä»¶å¤„ç†æµæ°´çº¿ï¼ˆåŒ…å«ACCEPTï¼‰
 		std::shared_ptr<DynamicBufferState> state;
 
 		bool SubmitIOEvent(IOCPOPData* opdata);
@@ -184,7 +184,7 @@ private:
 		bool _active;
 	};
 
-	// ¶¯Ì¬»º³åÇø¹ÜÀí,ÓÃÓÚ¶¯Ì¬µ÷ÕûÁ¬½ÓµÄ»º³åÇøÒÔÊÊÓ¦Í»·¢µÄÁ÷Á¿
+	// åŠ¨æ€ç¼“å†²åŒºç®¡ç†,ç”¨äºåŠ¨æ€è°ƒæ•´è¿æ¥çš„ç¼“å†²åŒºä»¥é€‚åº”çªå‘çš„æµé‡
 	class DynamicBufferState
 	{
 	public:
@@ -465,7 +465,7 @@ void IOCPCoreProcessImpl::SequentialIOSubmitter::NotifyDone(IOCPOPData* opdata)
 	{
 		if (opdata->buffer.Remain())
 		{
-			// ÉÏ´Î´«ÊäÎ´ÍêÈ«Íê³É£¬´´½¨ĞÂµÄIOCPOPDataÈÎÎñ£¬È»ºó·Åµ½¶ÓÊ×£¬¼ÌĞø´«Êä
+			// ä¸Šæ¬¡ä¼ è¾“æœªå®Œå…¨å®Œæˆï¼Œåˆ›å»ºæ–°çš„IOCPOPDataä»»åŠ¡ï¼Œç„¶åæ”¾åˆ°é˜Ÿé¦–ï¼Œç»§ç»­ä¼ è¾“
 			if (auto iodata = _weakdata.lock())
 			{
 				if (auto Con = iodata->weakCon.lock())
@@ -550,12 +550,12 @@ void IOCPCoreProcessImpl::SequentialIOSubmitter::GetPostIOEvent(std::vector<IOCP
 				_state = submitstate::doing;
 			}
 		}
-		else // ³¢ÊÔºÏ²¢Ğ´ÊÂ¼ş
+		else // å°è¯•åˆå¹¶å†™äº‹ä»¶
 		{
 			IOCPOPData* fistdata;
 			if (_queue.dequeue_front(fistdata) && fistdata)
 			{
-				// ×î¶àºÏ²¢9¸ö
+				// æœ€å¤šåˆå¹¶9ä¸ª
 				int count = 9;
 				while (!_queue.empty() && count > 0)
 				{
@@ -674,7 +674,7 @@ void IOCPCoreProcessImpl::SequentialEventExecutor::GetPostExcuteEvent(std::vecto
 	std::shared_ptr<ExcuteEvent> firstevent;
 	if (_queue.dequeue(firstevent) && firstevent)
 	{
-		if (firstevent->type == ExcuteEvent::EventType::READ_DATA) // ³¢ÊÔºÏ²¢ºóĞøµÄ¶ÁÊÂ¼ş
+		if (firstevent->type == ExcuteEvent::EventType::READ_DATA) // å°è¯•åˆå¹¶åç»­çš„è¯»äº‹ä»¶
 		{
 			int count = 9;
 			while (!_queue.empty() && count > 0)
@@ -793,10 +793,10 @@ bool IOCPCoreProcessImpl::Running()
 
 void IOCPCoreProcessImpl::Stop()
 {
-	IOCPOPData* opdata = IODATAMANAGER->AllocateData(IOCP_OPType::OP_SHUTDOWN, shutdown_eventfd, nullptr, 0);
-	opdata->fd = shutdown_eventfd;
 	if (_isinitsuccess)
 	{
+		IOCPOPData* opdata = IODATAMANAGER->AllocateData(IOCP_OPType::OP_SHUTDOWN, shutdown_eventfd, nullptr, 0);
+		opdata->fd = shutdown_eventfd;
 		PostQueuedCompletionStatus(
 			_iocp,
 			0,                  // dwNumberOfBytesTransferred
@@ -875,7 +875,7 @@ bool IOCPCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> BaseC
 
 	LockGuard lock(Con->GetSendMtx(), true);
 	if (!lock.isownlock())
-		return true; // Ğ´ËøÕıÔÚ±»ÆäËûÏß³ÌÕ¼ÓÃ
+		return true; // å†™é”æ­£åœ¨è¢«å…¶ä»–çº¿ç¨‹å ç”¨
 
 	int fd = Con->GetSocket();
 	SafeQueue<Buffer*>& SendDatas = Con->GetSendData();
@@ -911,7 +911,7 @@ bool IOCPCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> BaseC
 		{
 			if (!buffer->Data() || buffer->Length() <= 0)
 			{
-				// ÎŞĞ§Buffer²»·¢ËÍ
+				// æ— æ•ˆBufferä¸å‘é€
 				SAFE_DELETE(buffer);
 			}
 			else
@@ -927,7 +927,7 @@ bool IOCPCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> BaseC
 		count++;
 	}
 
-	if (!SendDatas.empty()) // ÈÔÓĞÊı¾İÎ´·¢ËÍ,¹Ø×¢Æä¿ÉĞ´ÊÂ¼ş,µÈ´ıÏÂ´Î¿ÉĞ´ÊÂ¼ş
+	if (!SendDatas.empty()) // ä»æœ‰æ•°æ®æœªå‘é€,å…³æ³¨å…¶å¯å†™äº‹ä»¶,ç­‰å¾…ä¸‹æ¬¡å¯å†™äº‹ä»¶
 	{
 		IOCPOPData* opdata = IOCPOPData::CreateWillWriteOP(Con);
 		if (!iodata->SubmitIOEvent(opdata))
@@ -1050,7 +1050,7 @@ bool IOCPCoreProcessImpl::GetDoneIOEvents(std::vector<IOCPOPData*>& opdatas)
 		std::vector<OVERLAPPED_ENTRY> entries(batchsize);
 		ULONG recvsize = 0;
 
-		// ÅúÁ¿»ñÈ¡Íê³ÉÊÂ¼ş
+		// æ‰¹é‡è·å–å®Œæˆäº‹ä»¶
 		BOOL success = GetQueuedCompletionStatusEx(
 			_iocp,
 			entries.data(),
@@ -1064,7 +1064,7 @@ bool IOCPCoreProcessImpl::GetDoneIOEvents(std::vector<IOCPOPData*>& opdatas)
 			break;
 		}
 
-		// ´¦ÀíÅúÁ¿Íê³ÉÊÂ¼ş
+		// å¤„ç†æ‰¹é‡å®Œæˆäº‹ä»¶
 		for (ULONG i = 0; i < recvsize; i++) {
 			OVERLAPPED_ENTRY& entry = entries[i];
 
@@ -1134,7 +1134,7 @@ int IOCPCoreProcessImpl::EventProcess(IOCPOPData* opdata, std::vector<IOCPOPData
 		return -1;
 
 	std::shared_ptr<BaseTransportConnection> Con = opdata->weakCon.lock();
-	if (!Con) // ¼ì²éÊÇ·ñÊ§Ğ§
+	if (!Con) // æ£€æŸ¥æ˜¯å¦å¤±æ•ˆ
 	{
 		DelNetFd(opdata->raw_ptr);
 		return -1;
@@ -1161,7 +1161,7 @@ int IOCPCoreProcessImpl::EventProcess(IOCPOPData* opdata, std::vector<IOCPOPData
 
 	if (!bResult) {
 		DWORD dwError = WSAGetLastError();
-		// ´¦Àí´íÎó
+		// å¤„ç†é”™è¯¯
 		if (dwError == WSAENOBUFS || dwError == WSA_NOT_ENOUGH_MEMORY)
 		{
 			std::shared_ptr<NetCore_IOCPData> iodata;
@@ -1456,7 +1456,7 @@ bool IOCPCoreProcessImpl::SubmitReadEvent(IOCPOPData* opdata)
 {
 	if (auto Con = opdata->weakCon.lock())
 	{
-		if (opdata->fd == INVALID_SOCKET)
+		if (opdata->fd == INVALID_SOCKET || opdata->fd <= 0)
 			return false;
 
 		opdata->wsaBuf.buf = opdata->buffer.Byte();
@@ -1464,7 +1464,7 @@ bool IOCPCoreProcessImpl::SubmitReadEvent(IOCPOPData* opdata)
 
 		DWORD flags = 0;
 
-		// ·¢ÆğÒì²½½ÓÊÕ
+		// å‘èµ·å¼‚æ­¥æ¥æ”¶
 		int result = WSARecv(
 			opdata->fd,
 			&opdata->wsaBuf,
@@ -1604,7 +1604,7 @@ void IOCPCoreProcessImpl::ProcessPendingDeletions()
 	_pendingDeletions.EnsureCall(
 		[&deletions](std::vector<DeleteLaterImpl*>& array) -> void
 		{
-			deletions.swap(array); // È¡³ö´ıÉ¾³ıÈÎÎñ
+			deletions.swap(array); // å–å‡ºå¾…åˆ é™¤ä»»åŠ¡
 		}
 
 	);
@@ -1612,8 +1612,8 @@ void IOCPCoreProcessImpl::ProcessPendingDeletions()
 	{
 		if (ptr)
 		{
-			// ÓÉÓÚÏß³Ì³ØÊÇÒì²½»Øµ÷,ËùÒÔÕâÀïÉ¾³ıµÄÊ±ºòĞèÒª¼ì²éÊÇ·ñÔÚÖ´ĞĞ»Øµ÷
-			// »Øµ÷ÖĞµÄÁ¬½Ó£¬ÍË±Ü´¦Àí
+			// ç”±äºçº¿ç¨‹æ± æ˜¯å¼‚æ­¥å›è°ƒ,æ‰€ä»¥è¿™é‡Œåˆ é™¤çš„æ—¶å€™éœ€è¦æ£€æŸ¥æ˜¯å¦åœ¨æ‰§è¡Œå›è°ƒ
+			// å›è°ƒä¸­çš„è¿æ¥ï¼Œé€€é¿å¤„ç†
 			if (isNetObjectAndOnCallBack(ptr))
 			{
 				_pendingDeletions.emplace(ptr);
