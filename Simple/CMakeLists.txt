@@ -19,84 +19,95 @@ IF(CMAKE_SYSTEM_NAME MATCHES "Linux")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread -lfmt -pthread")
 ENDIF()
 
-set(ALL_LIBS)
-
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
-    set(PUBLIC_LIB_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../bin/public.lib)
-    set(NET_LIB_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../bin/net.lib)
 
-    find_library(NET_LIB net PATHS ${CMAKE_CURRENT_SOURCE_DIR}/../bin NO_DEFAULT_PATH)
-    find_library(PUBLIC_LIB public PATHS ${CMAKE_CURRENT_SOURCE_DIR}/../bin NO_DEFAULT_PATH)
-
-    list(APPEND ALL_LIBS ${NET_LIB})
-    list(APPEND ALL_LIBS ${PUBLIC_LIB})
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(PUBLIC_LIB ${CMAKE_CURRENT_SOURCE_DIR}/../bin/public_d.lib)
+        set(NET_LIB ${CMAKE_CURRENT_SOURCE_DIR}/../bin/net_d.lib)
+    else()
+        set(PUBLIC_LIB ${CMAKE_CURRENT_SOURCE_DIR}/../bin/public.lib)
+        set(NET_LIB ${CMAKE_CURRENT_SOURCE_DIR}/../bin/net.lib)
+    endif()
 
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
-    set(PUBLIC_LIB_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../bin/libpublic.so)
-    set(NET_LIB_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../bin/libnet.so)
 
-    # 检查库文件是否存在（调试用）
-    message(STATUS "Checking libpublic.so at: ${PUBLIC_LIB_PATH}")
-    message(STATUS "Checking libnet.so at: ${NET_LIB_PATH}/../bin/libnet.so")
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(PUBLIC_LIB ${CMAKE_CURRENT_SOURCE_DIR}/../bin/libpublic_d.so)
+        set(NET_LIB ${CMAKE_CURRENT_SOURCE_DIR}/../bin/libnet_d.so)
+    else()
+        set(PUBLIC_LIB ${CMAKE_CURRENT_SOURCE_DIR}/../bin/libpublic.so)
+        set(NET_LIB ${CMAKE_CURRENT_SOURCE_DIR}/../bin/libnet.so)
+    endif()
 
-    # 定义导入库（绝对路径 + 检查存在性）
-    find_library(NET_LIB net PATHS ${CMAKE_CURRENT_SOURCE_DIR}/../bin NO_DEFAULT_PATH)
-    find_library(PUBLIC_LIB public PATHS ${CMAKE_CURRENT_SOURCE_DIR}/../bin NO_DEFAULT_PATH)
-    find_library(FMT_LIB fmt PATHS /usr/lib /usr/local/lib)
     find_library(URING_LIB uring PATHS /usr/lib /usr/local/lib)
-
-    if(NOT NET_LIB)
-        message(WARNING "libnet.so not found in ${${CMAKE_CURRENT_SOURCE_DIR}}/../bin")
-    endif()
-
-    if(NOT PUBLIC_LIB)
-        message(WARNING "libpublic.so not found in ${${CMAKE_CURRENT_SOURCE_DIR}}/../bin")
-    endif()
-
-    if(NOT FMT_LIB)
-        message("fmt library not found!")
-    endif()
 
     if(NOT URING_LIB)
         message(WARNING "uring library not found!")
     endif()
 
-    list(APPEND ALL_LIBS ${NET_LIB})
-    list(APPEND ALL_LIBS ${PUBLIC_LIB})
-
-    if(URING_LIB)
-        list(APPEND ALL_LIBS ${URING_LIB})
-    endif()
-    if(FMT_LIB)
-        list(APPEND ALL_LIBS ${URING_LIB})
-    endif()
-
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread -lfmt -fpermissive -fcoroutines -g")
 endif()
 
+
+
 if(EchoServerSimple_ON)
     add_executable(EchoServerSimple ${CMAKE_CURRENT_SOURCE_DIR}/EchoServerSimple.cpp)
-    target_link_libraries(EchoServerSimple ${ALL_LIBS})
+    target_link_libraries(EchoServerSimple ${NET_LIB} ${PUBLIC_LIB})
+
+    if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+        if(URING_LIB)
+            target_link_libraries(EchoServerSimple ${URING_LIB})
+        endif()
+    endif()
+
 endif()
 
 if(EchoClientSimple_ON)
     add_executable(EchoClientSimple ${CMAKE_CURRENT_SOURCE_DIR}/EchoClientSimple.cpp)
-    target_link_libraries(EchoClientSimple ${ALL_LIBS})
+    target_link_libraries(EchoClientSimple ${NET_LIB} ${PUBLIC_LIB})
+
+    if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+        if(URING_LIB)
+            target_link_libraries(EchoClientSimple ${URING_LIB})
+        endif()
+    endif()
+
 endif()
 
 if(CoroutineSimple_ON)
     add_executable(CoroutineSimple ${CMAKE_CURRENT_SOURCE_DIR}/CoroutineSimple.cpp)
-    target_link_libraries(CoroutineSimple ${ALL_LIBS})
+    target_link_libraries(CoroutineSimple ${NET_LIB} ${PUBLIC_LIB})
+
+    if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+        if(URING_LIB)
+            target_link_libraries(CoroutineSimple ${URING_LIB})
+        endif()
+    endif()
+
 endif()
 
 if(ThreadPoolSimple_ON)
-add_executable(ThreadPoolSimple ${CMAKE_CURRENT_SOURCE_DIR}/ThreadPoolSimple.cpp)
-target_link_libraries(ThreadPoolSimple ${ALL_LIBS})
+    add_executable(ThreadPoolSimple ${CMAKE_CURRENT_SOURCE_DIR}/ThreadPoolSimple.cpp)
+    target_link_libraries(ThreadPoolSimple ${NET_LIB} ${PUBLIC_LIB})
+
+    if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+        if(URING_LIB)
+            target_link_libraries(ThreadPoolSimple ${URING_LIB})
+        endif()
+    endif()
+
 endif()
 
 if(TimerSimple_ON)
     add_executable(TimerSimple ${CMAKE_CURRENT_SOURCE_DIR}/TimerSimple.cpp)
-    target_link_libraries(TimerSimple ${ALL_LIBS})
+    target_link_libraries(TimerSimple ${NET_LIB} ${PUBLIC_LIB})
+
+    if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+        if(URING_LIB)
+            target_link_libraries(TimerSimple ${URING_LIB})
+        endif()
+    endif()
+
 endif()
 
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address  -fsanitize-recover=address -fno-stack-protector -fno-omit-frame-pointer -fno-var-tracking")
