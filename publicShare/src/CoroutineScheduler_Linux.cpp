@@ -319,6 +319,11 @@ int CoroutineScheduler::EventProcess(Coro_IOuringOPData *opdata)
         if (!handle || !handle->active)
             return 1;
 
+        if (opdata->res < 0)
+        {
+            handle->socket = 0;
+            CoCloseSocket(handle->socket);
+        }
         LockGuard lock(handle->corolock);
         if (handle->active)
         {
