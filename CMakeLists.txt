@@ -13,6 +13,8 @@ else()
     add_compile_options(-finput-charset=UTF-8)
 endif()
 
+# set(CMAKE_BUILD_TYPE "Debug")
+
 # 添加子目录
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/publicShare)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/Net)
