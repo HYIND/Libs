@@ -1,4 +1,4 @@
-#include "ThreadPool.h"
+ï»¿#include "ThreadPool.h"
 #include "FlexThreadPool.h"
 #include <iostream>
 
@@ -66,9 +66,11 @@ void testFlexThreadPool()
 
 int main(int argc, char* argv[])
 {
+	system("chcp 65001 > nul"); // åˆ‡æ¢åˆ° UTF-8
+
 	testThreadPool();
 	testFlexThreadPool();
 
-	std::cout << "°´»Ø³µÍË³ö³ÌĞò..." << std::endl;
+	std::cout << "æŒ‰å›è½¦é€€å‡ºç¨‹åº..." << std::endl;
 	std::cin.get();
 }

@@ -1,4 +1,4 @@
-#include "Session/CustomTcpSession.h"
+ï»¿#include "Session/CustomTcpSession.h"
 #include "Session/CustomWebSocketSession.h"
 #include "Core/NetCore.h"
 #include <iostream>
@@ -156,6 +156,7 @@ void testNet()
 
 int main(int argc, char* argv[])
 {
+	system("chcp 65001 > nul"); // åˆ‡æ¢åˆ° UTF-8
 
 #ifdef _WIN32
 	if (!SetConsoleCtrlHandler(CtrlHandler, TRUE)) {
@@ -176,6 +177,6 @@ int main(int argc, char* argv[])
 
 	testNet();
 
-	std::cout << "°´»Ø³µ½áÊø³ÌĞò..." << std::endl;
+	std::cout << "æŒ‰å›è½¦ç»“æŸç¨‹åº..." << std::endl;
 	std::cin.get();
 }

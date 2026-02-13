@@ -1,4 +1,4 @@
-#include "Session/CustomWebSocketSession.h"
+﻿#include "Session/CustomWebSocketSession.h"
 #include "Session/CustomTcpSession.h"
 #include "Session/SessionListener.h"
 #include "Core/NetCore.h"
@@ -140,6 +140,8 @@ private:
 
 int main()
 {
+	system("chcp 65001 > nul"); // 切换到 UTF-8
+
 #ifdef _WIN32
 	if (!SetConsoleCtrlHandler(CtrlHandler, TRUE)) {
 		printf("Failed to set control handler\n");

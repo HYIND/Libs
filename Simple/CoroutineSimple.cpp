@@ -1,4 +1,4 @@
-#include "Coroutine.h"
+ï»¿#include "Coroutine.h"
 #include <iostream>
 #include <random>
 #include <chrono>
@@ -95,8 +95,10 @@ void testCoroutine()
 
 int main(int argc, char* argv[])
 {
+	system("chcp 65001 > nul"); // åˆ‡æ¢åˆ° UTF-8
+
 	testCoroutine();
 
-	std::cout << "°´»Ø³µÍË³ö³ÌĞò..." << std::endl;
+	std::cout << "æŒ‰å›è½¦é€€å‡ºç¨‹åº..." << std::endl;
 	std::cin.get();
 }

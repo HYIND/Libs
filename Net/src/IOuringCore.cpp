@@ -217,13 +217,6 @@ private:
     CriticalSectionLock _doPostIOEventLock;
 };
 
-int64_t GetTimestampMilliseconds()
-{
-    auto now = std::chrono::system_clock::now();
-    auto duration = now.time_since_epoch();
-    return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-}
-
 static void setnonblocking(BaseSocket fd)
 {
     fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
