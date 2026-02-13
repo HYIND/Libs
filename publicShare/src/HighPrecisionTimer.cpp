@@ -1,13 +1,14 @@
 ﻿#include "HighPrecisionTimer.h"
 
+#ifdef _WIN32
 // 静态成员定义
 LARGE_INTEGER HighPrecisionTimer::sm_liPerfFreq = {};
 UINT HighPrecisionTimer::sm_wAccuracy = 0;
 BOOL HighPrecisionTimer::sm_bInitialized = FALSE;
 MMRESULT HighPrecisionTimer::sm_mmTimerId = 0;
 CRITICAL_SECTION HighPrecisionTimer::sm_cs = {};
-std::list<HighPrecisionTimer::TimerRequest*> HighPrecisionTimer::sm_requests;
-std::atomic<bool> HighPrecisionTimer::sm_csInitialized{ false };
+std::list<HighPrecisionTimer::TimerRequest *> HighPrecisionTimer::sm_requests;
+std::atomic<bool> HighPrecisionTimer::sm_csInitialized{false};
 
 HighPrecisionTimer::CriticalSectionLock::CriticalSectionLock()
 {
@@ -39,7 +40,7 @@ void HighPrecisionTimer::TimerProc(UINT, UINT, DWORD_PTR, DWORD_PTR, DWORD_PTR)
 	auto it = sm_requests.begin();
 	while (it != sm_requests.end())
 	{
-		TimerRequest* req = *it;
+		TimerRequest *req = *it;
 
 		if (!req->bSignaled && req->expireTime <= currentTime)
 		{
@@ -128,7 +129,7 @@ BOOL HighPrecisionTimer::MSleep(DWORD milliseconds)
 	if (!hEvent)
 		return FALSE;
 
-	TimerRequest* req = nullptr;
+	TimerRequest *req = nullptr;
 	BOOL result = FALSE;
 
 	try
@@ -181,3 +182,25 @@ BOOL HighPrecisionTimer::IsInitialized()
 {
 	return sm_bInitialized;
 }
+
+#elif __linux__
+
+bool HighPrecisionTimer::Initialize()
+{
+	return false;
+}
+void HighPrecisionTimer::Uninitialize()
+{
+}
+
+bool HighPrecisionTimer::MSleep(uint32_t milliseconds)
+{
+	return false;
+}
+
+bool HighPrecisionTimer::IsInitialized()
+{
+	return false;
+}
+
+#endif

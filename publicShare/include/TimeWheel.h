@@ -7,6 +7,8 @@
 #include <chrono>
 #include <algorithm>
 #include <iostream>
+#include <thread>
+#include <atomic>
 
 struct TimerTaskHandle;
 struct TimerNode {
