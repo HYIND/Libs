@@ -21,7 +21,7 @@ public: // Task
     std::shared_ptr<TaskHandle> RegisterTaskCoroutine(std::coroutine_handle<> coroutine);
 
 public: // Connect
-    std::shared_ptr<CoConnection::Handle> create_connection(BaseSocket socket, sockaddr_in localaddr, sockaddr_in remoteaddr);
+    std::shared_ptr<CoConnection::Handle> create_connection(BaseSocket socket, sockaddr_in& localaddr, sockaddr_in& remoteaddr);
 
 private:
     CoroutineScheduler();

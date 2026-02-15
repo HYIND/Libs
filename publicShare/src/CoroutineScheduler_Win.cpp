@@ -109,16 +109,16 @@ struct Coro_IOCPOPData
 		: OP_Type(OP_Type) {
 		memset(&overlapped, 0, sizeof(OVERLAPPED));
 	}
-	Coro_IOCPOPData(Coro_IOCP_OPType OP_Type, std::shared_ptr<TaskHandle> handle)
-		: OP_Type(OP_Type), task_handle(handle) {
+	Coro_IOCPOPData(std::shared_ptr<TaskHandle> handle)
+		: OP_Type(Coro_IOCP_OPType::OP_Coroutine), task_handle(handle) {
 		memset(&overlapped, 0, sizeof(OVERLAPPED));
 	}
-	Coro_IOCPOPData(Coro_IOCP_OPType OP_Type, std::shared_ptr<CoConnection::Handle> handle)
-		: OP_Type(OP_Type), connection_handle(handle) {
+	Coro_IOCPOPData(std::shared_ptr<CoConnection::Handle> handle)
+		: OP_Type(Coro_IOCP_OPType::OP_Connect), connection_handle(handle) {
 		memset(&overlapped, 0, sizeof(OVERLAPPED));
 	}
-	Coro_IOCPOPData(Coro_IOCP_OPType OP_Type, std::shared_ptr<CoTimer::Handle> handle)
-		: OP_Type(OP_Type), timer_handle(handle) {
+	Coro_IOCPOPData(std::shared_ptr<CoTimer::Handle> handle)
+		: OP_Type(Coro_IOCP_OPType::OP_TimeOut), timer_handle(handle) {
 		memset(&overlapped, 0, sizeof(OVERLAPPED));
 	}
 };
@@ -415,6 +415,8 @@ int CoroutineScheduler::EventProcess(Coro_IOCPOPData* opdata)
 	else if (opdata->OP_Type == Coro_IOCP_OPType::OP_Coroutine)
 	{
 		auto handle = opdata->task_handle;
+		if (!handle)
+			return 1;
 
 		if (handle->coroutine && !handle->coroutine.done())
 		{
@@ -503,7 +505,7 @@ std::shared_ptr<CoTimer::Handle> CoroutineScheduler::create_timer(std::chrono::m
 	auto handle = std::make_shared<CoTimer::Handle>();
 
 	auto timer = TimerTask::CreateOnce("", interval.count(), [handle, this]()->void {
-		Coro_IOCPOPData* opdata = new Coro_IOCPOPData(Coro_IOCP_OPType::OP_TimeOut, handle);
+		Coro_IOCPOPData* opdata = new Coro_IOCPOPData(handle);
 
 		bool success = SubmitTimeOutEvent(opdata);
 
@@ -542,29 +544,21 @@ std::shared_ptr<TaskHandle> CoroutineScheduler::RegisterTaskCoroutine(std::corou
 
 	auto handle = std::make_shared<TaskHandle>(coroutine);
 
-	Coro_IOCPOPData* opdata = new Coro_IOCPOPData(Coro_IOCP_OPType::OP_Coroutine, handle);
+	Coro_IOCPOPData* opdata = new Coro_IOCPOPData(handle);
 	_optaskqueue.enqueue(opdata);
 	_IOEventCV.notify_one();
 
 	return handle;
 }
 
-std::shared_ptr<CoConnection::Handle> CoroutineScheduler::create_connection(BaseSocket socket, sockaddr_in localaddr, sockaddr_in remoteaddr)
+std::shared_ptr<CoConnection::Handle> CoroutineScheduler::create_connection(BaseSocket socket, sockaddr_in& localaddr, sockaddr_in& remoteaddr)
 {
 	auto handle = std::make_shared<CoConnection::Handle>();
 	handle->socket = socket;
 	handle->localaddr = localaddr;
 	handle->remoteaddr = remoteaddr;
 
-	if (bind(socket, (sockaddr*)&localaddr, sizeof(localaddr)) == SOCKET_ERROR)
-	{
-		CoCloseSocket(socket);
-		handle->active = false;
-		handle->socket = 0;
-		return handle;
-	}
-
-	Coro_IOCPOPData* opdata = new Coro_IOCPOPData(Coro_IOCP_OPType::OP_Connect, handle);
+	Coro_IOCPOPData* opdata = new Coro_IOCPOPData(handle);
 	_optaskqueue.enqueue(opdata);
 	_IOEventCV.notify_one();
 

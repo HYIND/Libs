@@ -29,24 +29,20 @@ TcpEndPointListener::TcpEndPointListener(TCPNetProtocol proto) : _Protocol(proto
 	BaseListener->BindAcceptCallBack(std::bind(&TcpEndPointListener::RecvCon, this, std::placeholders::_1));
 
 	// 定期检测过期连接
-#ifdef __linux__
 	CleanExpiredTask = TimerTask::CreateRepeat("TcpEndPointListener::CleanExpiredClient",
 		30 * 1000,
 		std::bind(&TcpEndPointListener::CleanExpiredClient, this),
 		30 * 1000);
 	CleanExpiredTask->Run();
-#endif
 }
 
 TcpEndPointListener::~TcpEndPointListener()
 {
-#ifdef __linux__
 	if (CleanExpiredTask)
 	{
 		CleanExpiredTask->Clean();
 		CleanExpiredTask = nullptr;
 	}
-#endif
 }
 
 TCPNetProtocol TcpEndPointListener::Protocol()
@@ -171,6 +167,7 @@ void TcpEndPointListener::CleanExpiredClient()
 					client->Release();
 					it = array.erase(it);
 					DeleteLater(client);
+					return;
 				}
 				else
 				{

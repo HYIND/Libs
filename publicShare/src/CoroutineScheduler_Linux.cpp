@@ -449,14 +449,6 @@ std::shared_ptr<CoConnection::Handle> CoroutineScheduler::create_connection(Base
     handle->localaddr = localaddr;
     handle->remoteaddr = remoteaddr;
 
-    if (::bind(handle->socket, (struct sockaddr *)&localaddr, sizeof(struct sockaddr)))
-    {
-        perror("bind socket error");
-        CoCloseSocket(handle->socket);
-        handle->active = false;
-        return handle;
-    }
-
     Coro_IOuringOPData *opdata = new Coro_IOuringOPData(Coro_IOUring_OPType::OP_Connect, handle);
     opdata->fd = fd;
     _optaskqueue.enqueue(opdata);

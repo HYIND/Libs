@@ -20,7 +20,6 @@ bool TCPEndPoint::Connect(const std::string &IP, uint16_t Port)
     return true;
 }
 
-#ifdef __linux__
 Task<bool> TCPEndPoint::ConnectAsync(const std::string &IP, uint16_t Port)
 {
     if (!co_await BaseCon->ConnectAsync(IP, Port))
@@ -31,7 +30,6 @@ Task<bool> TCPEndPoint::ConnectAsync(const std::string &IP, uint16_t Port)
 
     co_return true;
 }
-#endif
 
 bool TCPEndPoint::Release()
 {

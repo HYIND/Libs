@@ -1,4 +1,4 @@
-#include "Coroutine.h"
+﻿#include "Coroutine.h"
 
 #ifdef __linux__
 #include "CoroutineScheduler_Linux.h"
@@ -14,7 +14,7 @@
 #ifdef __linux__
 BaseSocket NewClientSocket(const std::string& IP, uint16_t port, __socket_type protocol, sockaddr_in& sock_addr)
 {
-	memset(&sock_addr, '0', sizeof(sock_addr));
+	memset(&sock_addr, 0, sizeof(sock_addr));
 	sock_addr.sin_family = AF_INET;
 	sock_addr.sin_port = htons(port);
 
@@ -26,14 +26,26 @@ BaseSocket NewClientSocket(const std::string& IP, uint16_t port, __socket_type p
 #elif _WIN32
 BaseSocket NewClientSocket(const std::string& IP, uint16_t port, int protocol, sockaddr_in& sock_addr)
 {
-
 	ZeroMemory(&sock_addr, sizeof(sock_addr));
 	sock_addr.sin_family = AF_INET;
 	sock_addr.sin_port = htons(port);
 
 	inet_pton(AF_INET, IP.c_str(), &(sock_addr.sin_addr.s_addr));
 
-	return WSASocket(sock_addr.sin_family, protocol, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
+	// 根据协议确定套接字类型
+	int type;
+	switch (protocol) {
+	case IPPROTO_TCP:
+		type = SOCK_STREAM;
+		break;
+	case IPPROTO_UDP:
+		type = SOCK_DGRAM;
+		break;
+	default:
+		type = SOCK_RAW;
+	}
+
+	return WSASocket(sock_addr.sin_family, type, protocol, NULL, 0, WSA_FLAG_OVERLAPPED);
 }
 #endif
 
@@ -59,11 +71,11 @@ bool CoConnection::Awaiter::await_ready()
 void CoConnection::Awaiter::await_suspend(std::coroutine_handle<> coro)
 {
 	auto trytoresume = [&]() -> void
-		{
-			bool expected = false;
-			if (handle->corodone.compare_exchange_strong(expected, true))
-				coro.resume();
-		};
+	{
+		bool expected = false;
+		if (handle->corodone.compare_exchange_strong(expected, true))
+			coro.resume();
+	};
 
 	if (!handle || !handle->active)
 	{
@@ -90,7 +102,9 @@ void CoConnection::Awaiter::await_suspend(std::coroutine_handle<> coro)
 
 BaseSocket CoConnection::Awaiter::await_resume()
 {
-	return handle->socket;
+	if (handle)
+		return handle->socket;
+	return 0;
 }
 
 CoConnection::CoConnection(const std::string& ip, const int port)
@@ -106,24 +120,41 @@ CoConnection::CoConnection(const std::string& ip, const int port)
 	}
 #endif
 
-	sockaddr_in local_addr;
-	local_addr.sin_family = AF_INET;
-	local_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	local_addr.sin_port = htons(0);
+	sockaddr_in localaddr, remoteaddr;
+	memset(&localaddr, 0, sizeof(localaddr));
+	localaddr.sin_family = AF_INET;
+	localaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+	localaddr.sin_port = htons(0);
 
-	sockaddr_in remote_addr;
-	BaseSocket socket = NewClientSocket(ip, port, SOCK_STREAM, remote_addr);
+	BaseSocket socket = NewClientSocket(ip, port, IPPROTO_TCP, remoteaddr);
 
 	if (socket <= 0)
 	{
 		CoCloseSocket(socket);
-		handle = std::make_shared<CoConnection::Handle>();
-		handle->socket = 0;
-		handle->active = false;
 		return;
 	}
 
-	handle = CoroutineScheduler::Instance()->create_connection(socket, local_addr, remote_addr);
+	if (::bind(socket, (sockaddr*)&localaddr, sizeof(struct sockaddr)) == SOCKET_ERROR)
+	{
+		CoCloseSocket(socket);
+		return;
+	}
+
+#ifdef _WIN32
+	int result = connect(socket, (struct sockaddr*)&remoteaddr, sizeof(struct sockaddr));
+	if (result < 0)
+	{
+		perror("connect socket error");
+		return;
+	}
+
+	handle = std::make_shared<Handle>();
+	handle->active = false;
+	handle->socket = socket;
+
+#elif __linux__
+	handle = CoroutineScheduler::Instance()->create_connection(socket, localaddr, remoteaddr);
+#endif
 }
 
 CoConnection::~CoConnection() {}

@@ -20,12 +20,10 @@ bool PureWebSocketSession::Connect(const std::string& IP, uint16_t Port)
 	return Base::Connect(IP, Port);
 }
 
-#ifdef __linux__
 Task<bool> PureWebSocketSession::ConnectAsync(const std::string& IP, uint16_t Port)
 {
 	co_return co_await Base::ConnectAsync(IP, Port);
 }
-#endif
 
 bool PureWebSocketSession::Release()
 {
@@ -93,12 +91,10 @@ bool PureWebSocketSession::TryHandshake(uint32_t timeOutMs)
 	return true;
 }
 
-#ifdef __linux__
 Task<bool> PureWebSocketSession::TryHandshakeAsync(uint32_t timeOutMs)
 {
 	co_return true;
 }
-#endif
 
 CheckHandshakeStatus PureWebSocketSession::CheckHandshakeTryMsg(Buffer& buffer)
 {

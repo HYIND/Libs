@@ -40,24 +40,20 @@ NetWorkSessionListener::NetWorkSessionListener(SessionType type)
 	}
 	BaseListener.BindEstablishConnectionCallBack(std::bind(&NetWorkSessionListener::RecvClient, this, std::placeholders::_1));
 	// 定期检测过期连接
-#ifdef __linux__
 	CleanExpiredTask = TimerTask::CreateRepeat("TcpEndPointListener::CleanExpiredClient",
 		30 * 1000,
 		std::bind(&NetWorkSessionListener::CleanExpiredSession, this),
 		30 * 1000);
 	CleanExpiredTask->Run();
-#endif
 }
 
 NetWorkSessionListener::~NetWorkSessionListener()
 {
-#ifdef __linux__
 	if (CleanExpiredTask)
 	{
 		CleanExpiredTask->Clean();
 		CleanExpiredTask = nullptr;
 	}
-#endif
 }
 
 bool NetWorkSessionListener::Listen(const std::string& IP, int Port)
@@ -129,6 +125,7 @@ void NetWorkSessionListener::ClientClose(TCPEndPoint* client)
 					session->Release();
 					array.erase(it);
 					DeleteLater(session);
+					return;
 				}
 			}
 		});

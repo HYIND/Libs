@@ -134,12 +134,10 @@ bool CustomTcpSession::Connect(const std::string &IP, uint16_t Port)
     return Base::Connect(IP, Port);
 }
 
-#ifdef __linux__
 Task<bool> CustomTcpSession::ConnectAsync(const std::string &IP, uint16_t Port)
 {
     co_return co_await Base::ConnectAsync(IP, Port);
 }
-#endif
 
 bool CustomTcpSession::Release()
 {
@@ -325,7 +323,7 @@ void CustomTcpSession::ProcessPakage(CustomPackage *newPak)
                     task->respsonse->CopyFromBuf(pak->buffer);
 
                 int count = 0;
-                while (!task->status == -1 && count < 5)
+                while (!(task->status == -1) && count < 5)
                 {
                     count++;
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -414,7 +412,6 @@ bool CustomTcpSession::TryHandshake(uint32_t timeOutMs)
                                     { return isHandshakeComplete; });
 }
 
-#ifdef __linux__
 Task<bool> CustomTcpSession::TryHandshakeAsync(uint32_t timeOutMs)
 {
     Buffer token(CustomProtocolTryToken, sizeof(CustomProtocolTryToken) - 1);
@@ -432,7 +429,6 @@ Task<bool> CustomTcpSession::TryHandshakeAsync(uint32_t timeOutMs)
 
     co_return isHandshakeComplete;
 }
-#endif
 
 CheckHandshakeStatus CustomTcpSession::CheckHandshakeTryMsg(Buffer &buffer)
 {
@@ -482,12 +478,10 @@ CheckHandshakeStatus CustomTcpSession::CheckHandshakeConfirmMsg(Buffer &buffer)
 
     isHandshakeComplete = true;
 
-#ifdef __linux__
     LockGuard lock(_Colock);
     if (_handshaketimeout)
         _handshaketimeout->wake();
     else
-#endif
         _tryHandshakeCV.notify_all();
 
     return CheckHandshakeStatus::Success;

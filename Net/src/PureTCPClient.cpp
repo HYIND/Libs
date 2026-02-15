@@ -34,12 +34,10 @@ bool PureTCPClient::Connect(const std::string &IP, uint16_t Port)
     return Base::Connect(IP, Port);
 }
 
-#ifdef __linux__
 Task<bool> PureTCPClient::ConnectAsync(const std::string &IP, uint16_t Port)
 {
     co_return co_await Base::ConnectAsync(IP, Port);
 }
-#endif
 
 bool PureTCPClient::Release()
 {
@@ -103,12 +101,10 @@ bool PureTCPClient::TryHandshake(uint32_t timeOutMs)
     return true;
 }
 
-#ifdef __linux__
 Task<bool> PureTCPClient::TryHandshakeAsync(uint32_t timeOutMs)
 {
     co_return true;
 }
-#endif
 
 CheckHandshakeStatus PureTCPClient::CheckHandshakeTryMsg(Buffer &buffer)
 {
