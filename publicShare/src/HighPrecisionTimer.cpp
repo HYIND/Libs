@@ -7,8 +7,8 @@ UINT HighPrecisionTimer::sm_wAccuracy = 0;
 BOOL HighPrecisionTimer::sm_bInitialized = FALSE;
 MMRESULT HighPrecisionTimer::sm_mmTimerId = 0;
 CRITICAL_SECTION HighPrecisionTimer::sm_cs = {};
-std::list<HighPrecisionTimer::TimerRequest*> HighPrecisionTimer::sm_requests;
-std::atomic<bool> HighPrecisionTimer::sm_csInitialized{ false };
+std::list<HighPrecisionTimer::TimerRequest *> HighPrecisionTimer::sm_requests;
+std::atomic<bool> HighPrecisionTimer::sm_csInitialized{false};
 
 void HighPrecisionTimer::InitializeCriticalSectionOnce()
 {
@@ -31,7 +31,7 @@ void HighPrecisionTimer::TimerProc(UINT, UINT, DWORD_PTR, DWORD_PTR, DWORD_PTR)
 	auto it = sm_requests.begin();
 	while (it != sm_requests.end())
 	{
-		TimerRequest* req = *it;
+		TimerRequest *req = *it;
 
 		if (!req->bSignaled && req->expireTime <= currentTime)
 		{
@@ -126,7 +126,7 @@ BOOL HighPrecisionTimer::MSleep(DWORD milliseconds)
 
 	BOOL result = FALSE;
 
-	TimerRequest* req = new TimerRequest;
+	TimerRequest *req = new TimerRequest;
 	req->expireTime = timeGetTime() + milliseconds;
 	req->duration = milliseconds;
 	req->hEvent = hEvent;
@@ -168,16 +168,18 @@ void HighPrecisionTimer::USleepBusy(DWORD microseconds)
 
 	LONGLONG target = (LONGLONG)((double)microseconds * freq.QuadPart / 1000000.0);
 
-	do {
+	do
+	{
 		QueryPerformanceCounter(&current);
 	} while ((current.QuadPart - start.QuadPart) < target);
 }
 
 void HighPrecisionTimer::USleep(DWORD microseconds)
 {
-	if (microseconds <= 0) return;
+	if (microseconds <= 0)
+		return;
 
-	if (microseconds >= 2000)  // 2ms以上用多媒体定时器
+	if (microseconds >= 2000) // 2ms以上用多媒体定时器
 	{
 		MSleep(microseconds / 1000);
 
@@ -186,7 +188,7 @@ void HighPrecisionTimer::USleep(DWORD microseconds)
 		if (remainder > 0)
 			USleepBusy(remainder);
 	}
-	else  // 2ms以下直接忙等待
+	else // 2ms以下直接忙等待
 	{
 		USleepBusy(microseconds);
 	}
@@ -205,9 +207,43 @@ BOOL HighPrecisionTimer::IsInitialized()
 
 #elif __linux__
 
+#include <unistd.h>
+#include <sys/timerfd.h>
+#include <iostream>
+
+bool timeFdSleep(uint32_t milliseconds)
+{
+	int timerFd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC);
+	if (timerFd == -1)
+		return false;
+
+	struct itimerspec spec = {0};
+	spec.it_value.tv_sec = milliseconds / 1000;
+	spec.it_value.tv_nsec = (milliseconds % 1000) * 1000000;
+
+	if (timerfd_settime(timerFd, 0, &spec, nullptr) != 0)
+	{
+		if (timerFd != -1)
+			close(timerFd);
+		return false;
+	}
+
+	uint64_t expirations = 0;
+	ssize_t s = read(timerFd, &expirations, sizeof(uint64_t));
+	if (s != sizeof(uint64_t))
+	{
+		if (timerFd != -1)
+			close(timerFd);
+		return false;
+	}
+	if (timerFd != -1)
+		close(timerFd);
+	return true;
+}
+
 bool HighPrecisionTimer::Initialize()
 {
-	return false;
+	return true;
 }
 void HighPrecisionTimer::Uninitialize()
 {
@@ -215,12 +251,17 @@ void HighPrecisionTimer::Uninitialize()
 
 bool HighPrecisionTimer::MSleep(uint32_t milliseconds)
 {
-	return false;
+
+	if (timeFdSleep(milliseconds))
+		return true;
+
+	usleep(1000 * milliseconds);
+	return true;
 }
 
 bool HighPrecisionTimer::IsInitialized()
 {
-	return false;
+	return true;
 }
 
 #endif
