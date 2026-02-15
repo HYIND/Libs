@@ -2,7 +2,7 @@
 
 #ifdef __linux__
 #include "CoroutineScheduler_Linux.h"
-#else 
+#else
 #include "CoroutineScheduler_Win.h"
 #endif
 
@@ -12,7 +12,7 @@
 #endif
 
 #ifdef __linux__
-BaseSocket NewClientSocket(const std::string& IP, uint16_t port, __socket_type protocol, sockaddr_in& sock_addr)
+BaseSocket NewClientSocket(const std::string &IP, uint16_t port, __socket_type protocol, sockaddr_in &sock_addr)
 {
 	memset(&sock_addr, 0, sizeof(sock_addr));
 	sock_addr.sin_family = AF_INET;
@@ -24,7 +24,7 @@ BaseSocket NewClientSocket(const std::string& IP, uint16_t port, __socket_type p
 }
 
 #elif _WIN32
-BaseSocket NewClientSocket(const std::string& IP, uint16_t port, int protocol, sockaddr_in& sock_addr)
+BaseSocket NewClientSocket(const std::string &IP, uint16_t port, int protocol, sockaddr_in &sock_addr)
 {
 	ZeroMemory(&sock_addr, sizeof(sock_addr));
 	sock_addr.sin_family = AF_INET;
@@ -34,7 +34,8 @@ BaseSocket NewClientSocket(const std::string& IP, uint16_t port, int protocol, s
 
 	// 根据协议确定套接字类型
 	int type;
-	switch (protocol) {
+	switch (protocol)
+	{
 	case IPPROTO_TCP:
 		type = SOCK_STREAM;
 		break;
@@ -50,7 +51,7 @@ BaseSocket NewClientSocket(const std::string& IP, uint16_t port, int protocol, s
 #endif
 
 CoConnection::Handle::Handle()
-	: socket(0), active(true), corodone{ false }
+	: socket(0), active(true), corodone{false}
 {
 }
 
@@ -107,11 +108,11 @@ BaseSocket CoConnection::Awaiter::await_resume()
 	return 0;
 }
 
-CoConnection::CoConnection(const std::string& ip, const int port)
+CoConnection::CoConnection(const std::string &ip, const int port)
 {
 #ifdef _WIN32
 
-	static std::atomic<bool> initwin{ false };
+	static std::atomic<bool> initwin{false};
 	bool execpted = false;
 	if (initwin.compare_exchange_strong(execpted, true))
 	{
@@ -126,7 +127,11 @@ CoConnection::CoConnection(const std::string& ip, const int port)
 	localaddr.sin_addr.s_addr = htonl(INADDR_ANY);
 	localaddr.sin_port = htons(0);
 
-	BaseSocket socket = NewClientSocket(ip, port, IPPROTO_TCP, remoteaddr);
+#ifdef _WIN32
+// BaseSocket socket = NewClientSocket(ip, port, IPPROTO_TCP, remoteaddr);
+#elif __linux__
+	BaseSocket socket = NewClientSocket(ip, port, SOCK_STREAM, remoteaddr);
+#endif
 
 	if (socket <= 0)
 	{
@@ -134,14 +139,14 @@ CoConnection::CoConnection(const std::string& ip, const int port)
 		return;
 	}
 
-	if (::bind(socket, (sockaddr*)&localaddr, sizeof(struct sockaddr)) == SOCKET_ERROR)
+	if (::bind(socket, (sockaddr *)&localaddr, sizeof(struct sockaddr)) == -1)
 	{
 		CoCloseSocket(socket);
 		return;
 	}
 
 #ifdef _WIN32
-	int result = connect(socket, (struct sockaddr*)&remoteaddr, sizeof(struct sockaddr));
+	int result = connect(socket, (struct sockaddr *)&remoteaddr, sizeof(struct sockaddr));
 	if (result < 0)
 	{
 		perror("connect socket error");
