@@ -46,7 +46,7 @@ struct Coro_IOuringOPData
     Coro_IOuringOPData(Coro_IOUring_OPType OP_Type, std::shared_ptr<CoConnection::Handle> handle)
         : OP_Type(OP_Type), connection_handle(handle), fd(handle->socket) {}
     Coro_IOuringOPData(Coro_IOUring_OPType OP_Type, std::shared_ptr<CoTimer::Handle> handle)
-        : OP_Type(OP_Type), timer_handle(handle), fd(handle->fd) {}
+        : OP_Type(OP_Type), timer_handle(handle) {}
 };
 
 CoroutineScheduler::CoroutineScheduler()
@@ -363,7 +363,7 @@ void CoroutineScheduler::DoPostIOEvents(std::vector<Coro_IOuringOPData *> &opdat
         {
         case Coro_IOUring_OPType::OP_TimeOut:
         {
-            SubmitTimerEvent(opdata);
+            SubmitTimeOutEvent(opdata);
         }
         break;
         case Coro_IOUring_OPType::OP_Coroutine:
@@ -398,11 +398,10 @@ std::shared_ptr<CoTimer::Handle> CoroutineScheduler::create_timer(std::chrono::m
 {
     auto handle = std::make_shared<CoTimer::Handle>();
 
-    auto timer = TimerTask::CreateOnce("", interval.count(), [this]()->void {
+    auto timer = TimerTask::CreateOnce("", interval.count(), [handle, this]() -> void {
         Coro_IOuringOPData* opdata = new Coro_IOuringOPData(Coro_IOUring_OPType::OP_TimeOut, handle);
         _optaskqueue.enqueue(opdata);
-        _IOEventCV.notify_one();
-        });
+        _IOEventCV.notify_one(); });
 
     if (!timer)
     {
@@ -466,14 +465,14 @@ bool CoroutineScheduler::SubmitTimeOutEvent(Coro_IOuringOPData *opdata)
         return false;
 
     io_uring_prep_nop(sqe);
-    io_uring_sqe_set_data(sqe, (void*)opdata);
+    io_uring_sqe_set_data(sqe, (void *)opdata);
 
     return true;
 }
 
 bool CoroutineScheduler::SubmitCoroutineEvent(Coro_IOuringOPData *opdata)
 {
-    if (!opdata->connection_handle)
+    if (!opdata->task_handle)
         return false;
     io_uring_sqe *sqe = io_uring_get_sqe(&ring);
     if (!sqe)
