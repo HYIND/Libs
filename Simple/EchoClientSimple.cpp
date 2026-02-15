@@ -75,17 +75,15 @@ public:
 
 	bool ConnectTo(const std::string& IP, uint16_t Port)
 	{
-#ifdef __linux__
 		{
 			// async
-			isconnected = session->ConnectAsync(IP, Port).sync_wait();
+			auto task = session->ConnectAsync(IP, Port);
+			isconnected = task.sync_wait();
 		}
-#elif _WIN32
 		{
 			// sync
-			isconnected = session->Connect(IP, Port);
+			//isconnected = session->Connect(IP, Port);
 		}
-#endif
 
 		if (isconnected)
 		{
