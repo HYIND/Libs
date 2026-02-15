@@ -42,14 +42,6 @@ private:
 	HighPrecisionTimer(const HighPrecisionTimer &) = delete;
 	HighPrecisionTimer &operator=(const HighPrecisionTimer &) = delete;
 
-	// RAII临界区锁
-	class CriticalSectionLock
-	{
-	public:
-		CriticalSectionLock();
-		~CriticalSectionLock();
-	};
-
 	// 初始化临界区（线程安全，只初始化一次）
 	static void InitializeCriticalSectionOnce();
 
@@ -62,6 +54,15 @@ public:
 
 	// 多媒体定时器版睡眠 - 1ms精度，CPU占用低
 	static BOOL MSleep(DWORD milliseconds);
+
+	// 微秒级精度，忙等待
+	static void USleepBusy(DWORD microseconds);
+
+	// 混合微秒睡眠 - 长时用多媒体定时器，短时用忙等待
+	static void USleep(DWORD microseconds);
+
+	// 自旋等待 - 最高精度，完全占用CPU
+	static void SpinWait(DWORD microseconds);
 
 	// 检查系统是否已初始化
 	static BOOL IsInitialized();

@@ -302,9 +302,10 @@ void HierarchicalTimeWheel::Run()
 			else
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			continue;
-		}
+		};
 
-		//std::cout << "tickcount =" << _levels[0]->current_tick
+		//if (tickcount % 100 == 0)
+		//	std::cout << "tickcount =" << tickcount
 		//	<< "  curtime = " << now - start_time
 		//	<< " 误差 = " << now - start_time - (tickcount * BASE_TICK_MS)
 		//	<< '\n';

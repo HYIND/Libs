@@ -7,18 +7,8 @@ UINT HighPrecisionTimer::sm_wAccuracy = 0;
 BOOL HighPrecisionTimer::sm_bInitialized = FALSE;
 MMRESULT HighPrecisionTimer::sm_mmTimerId = 0;
 CRITICAL_SECTION HighPrecisionTimer::sm_cs = {};
-std::list<HighPrecisionTimer::TimerRequest *> HighPrecisionTimer::sm_requests;
-std::atomic<bool> HighPrecisionTimer::sm_csInitialized{false};
-
-HighPrecisionTimer::CriticalSectionLock::CriticalSectionLock()
-{
-	EnterCriticalSection(&sm_cs);
-}
-
-HighPrecisionTimer::CriticalSectionLock::~CriticalSectionLock()
-{
-	LeaveCriticalSection(&sm_cs);
-}
+std::list<HighPrecisionTimer::TimerRequest*> HighPrecisionTimer::sm_requests;
+std::atomic<bool> HighPrecisionTimer::sm_csInitialized{ false };
 
 void HighPrecisionTimer::InitializeCriticalSectionOnce()
 {
@@ -35,12 +25,13 @@ void HighPrecisionTimer::TimerProc(UINT, UINT, DWORD_PTR, DWORD_PTR, DWORD_PTR)
 	DWORD currentTime = timeGetTime();
 
 	InitializeCriticalSectionOnce();
-	CriticalSectionLock lock;
+
+	EnterCriticalSection(&sm_cs);
 
 	auto it = sm_requests.begin();
 	while (it != sm_requests.end())
 	{
-		TimerRequest *req = *it;
+		TimerRequest* req = *it;
 
 		if (!req->bSignaled && req->expireTime <= currentTime)
 		{
@@ -58,6 +49,7 @@ void HighPrecisionTimer::TimerProc(UINT, UINT, DWORD_PTR, DWORD_PTR, DWORD_PTR)
 			++it;
 		}
 	}
+	LeaveCriticalSection(&sm_cs);
 }
 
 BOOL HighPrecisionTimer::Initialize()
@@ -106,7 +98,7 @@ void HighPrecisionTimer::Uninitialize()
 	// 清理所有等待请求
 	if (sm_csInitialized)
 	{
-		CriticalSectionLock lock;
+		EnterCriticalSection(&sm_cs);
 		for (auto req : sm_requests)
 		{
 			if (req->hEvent)
@@ -114,12 +106,15 @@ void HighPrecisionTimer::Uninitialize()
 			delete req;
 		}
 		sm_requests.clear();
+		LeaveCriticalSection(&sm_cs);
+		DeleteCriticalSection(&sm_cs);
+		sm_csInitialized = false;
 	}
 }
 
 BOOL HighPrecisionTimer::MSleep(DWORD milliseconds)
 {
-	if (!sm_bInitialized && !Initialize())
+	if (!sm_bInitialized)
 		return FALSE;
 
 	if (milliseconds == 0)
@@ -129,52 +124,77 @@ BOOL HighPrecisionTimer::MSleep(DWORD milliseconds)
 	if (!hEvent)
 		return FALSE;
 
-	TimerRequest *req = nullptr;
 	BOOL result = FALSE;
 
-	try
+	TimerRequest* req = new TimerRequest;
+	req->expireTime = timeGetTime() + milliseconds;
+	req->duration = milliseconds;
+	req->hEvent = hEvent;
+	req->bSignaled = FALSE;
+
 	{
-		req = new TimerRequest;
-		req->expireTime = timeGetTime() + milliseconds;
-		req->duration = milliseconds;
-		req->hEvent = hEvent;
-		req->bSignaled = FALSE;
-
-		{
-			CriticalSectionLock lock;
-			sm_requests.push_back(req);
-		}
-
-		// 等待事件触发或超时
-		DWORD waitResult = WaitForSingleObject(hEvent, milliseconds + 100);
-
-		if (waitResult == WAIT_OBJECT_0)
-		{
-			result = TRUE;
-		}
-		else
-		{
-			// 超时或错误，手动清理
-			CriticalSectionLock lock;
-			sm_requests.remove(req);
-			delete req;
-			req = nullptr;
-			result = FALSE;
-		}
+		EnterCriticalSection(&sm_cs);
+		sm_requests.push_back(req);
+		LeaveCriticalSection(&sm_cs);
 	}
-	catch (...)
+
+	// 等待事件触发或超时
+	DWORD waitResult = WaitForSingleObject(hEvent, milliseconds + 100);
+
+	if (waitResult == WAIT_OBJECT_0)
 	{
-		if (req)
-		{
-			CriticalSectionLock lock;
-			sm_requests.remove(req);
-			delete req;
-		}
+		result = TRUE;
+	}
+	else
+	{
+		// 超时或错误，手动清理
+		EnterCriticalSection(&sm_cs);
+		sm_requests.remove(req);
+		delete req;
+		req = nullptr;
 		result = FALSE;
+		LeaveCriticalSection(&sm_cs);
 	}
 
 	CloseHandle(hEvent);
 	return result;
+}
+
+void HighPrecisionTimer::USleepBusy(DWORD microseconds)
+{
+	LARGE_INTEGER freq, start, current;
+	QueryPerformanceFrequency(&freq);
+	QueryPerformanceCounter(&start);
+
+	LONGLONG target = (LONGLONG)((double)microseconds * freq.QuadPart / 1000000.0);
+
+	do {
+		QueryPerformanceCounter(&current);
+	} while ((current.QuadPart - start.QuadPart) < target);
+}
+
+void HighPrecisionTimer::USleep(DWORD microseconds)
+{
+	if (microseconds <= 0) return;
+
+	if (microseconds >= 2000)  // 2ms以上用多媒体定时器
+	{
+		MSleep(microseconds / 1000);
+
+		// 补偿余数
+		DWORD remainder = microseconds % 1000;
+		if (remainder > 0)
+			USleepBusy(remainder);
+	}
+	else  // 2ms以下直接忙等待
+	{
+		USleepBusy(microseconds);
+	}
+}
+
+void HighPrecisionTimer::SpinWait(DWORD microseconds)
+{
+	USleepBusy(microseconds);
 }
 
 // 检查系统是否已初始化
