@@ -24,7 +24,7 @@ BaseSocket NewClientSocket(const std::string &IP, uint16_t port, __socket_type p
 }
 
 #elif _WIN32
-BaseSocket NewClientSocket(const std::string &IP, uint16_t port, int protocol, sockaddr_in &sock_addr)
+BaseSocket NewClientSocket(const std::string& IP, uint16_t port, int type, sockaddr_in& sock_addr)
 {
 	ZeroMemory(&sock_addr, sizeof(sock_addr));
 	sock_addr.sin_family = AF_INET;
@@ -33,17 +33,17 @@ BaseSocket NewClientSocket(const std::string &IP, uint16_t port, int protocol, s
 	inet_pton(AF_INET, IP.c_str(), &(sock_addr.sin_addr.s_addr));
 
 	// 根据协议确定套接字类型
-	int type;
-	switch (protocol)
+	int protocol;
+	switch (type)
 	{
-	case IPPROTO_TCP:
-		type = SOCK_STREAM;
+	case SOCK_STREAM:
+		protocol = IPPROTO_TCP;
 		break;
-	case IPPROTO_UDP:
-		type = SOCK_DGRAM;
+	case SOCK_DGRAM:
+		protocol = IPPROTO_UDP;
 		break;
 	default:
-		type = SOCK_RAW;
+		protocol = 0;
 	}
 
 	return WSASocket(sock_addr.sin_family, type, protocol, NULL, 0, WSA_FLAG_OVERLAPPED);
@@ -127,11 +127,7 @@ CoConnection::CoConnection(const std::string &ip, const int port)
 	localaddr.sin_addr.s_addr = htonl(INADDR_ANY);
 	localaddr.sin_port = htons(0);
 
-#ifdef _WIN32
-	BaseSocket socket = NewClientSocket(ip, port, IPPROTO_TCP, remoteaddr);
-#elif __linux__
 	BaseSocket socket = NewClientSocket(ip, port, SOCK_STREAM, remoteaddr);
-#endif
 
 	if (socket <= 0)
 	{

@@ -16,16 +16,29 @@ BaseSocket NewClientSocket(const std::string& IP, uint16_t port, __socket_type p
 }
 
 #elif _WIN32
-BaseSocket NewClientSocket(const std::string& IP, uint16_t port, int protocol, sockaddr_in& sock_addr)
+BaseSocket NewClientSocket(const std::string& IP, uint16_t port, int type, sockaddr_in& sock_addr)
 {
-
 	ZeroMemory(&sock_addr, sizeof(sock_addr));
 	sock_addr.sin_family = AF_INET;
 	sock_addr.sin_port = htons(port);
 
 	inet_pton(AF_INET, IP.c_str(), &(sock_addr.sin_addr.s_addr));
 
-	return WSASocket(sock_addr.sin_family, protocol, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
+	// 根据协议确定套接字类型
+	int protocol;
+	switch (type)
+	{
+	case SOCK_STREAM:
+		protocol = IPPROTO_TCP;
+		break;
+	case SOCK_DGRAM:
+		protocol = IPPROTO_UDP;
+		break;
+	default:
+		protocol = 0;
+	}
+
+	return WSASocket(sock_addr.sin_family, type, protocol, NULL, 0, WSA_FLAG_OVERLAPPED);
 }
 #endif
 
