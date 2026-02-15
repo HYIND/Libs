@@ -8,16 +8,16 @@
 #endif
 
 CoTimer::Handle::Handle()
-	: result(CoTimer::WakeType::RUNNING), fd(0), active(true), corodone{false}
+	: result(CoTimer::WakeType::RUNNING), active(true), corodone{ false }
 {
 }
 
 CoTimer::Handle::~Handle()
 {
-	if (fd > 0)
+	if (task)
 	{
-		close(fd);
-		fd = -1;
+		task->Clean();
+		task.reset();
 	}
 }
 

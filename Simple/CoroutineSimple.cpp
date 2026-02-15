@@ -6,8 +6,6 @@
 
 using namespace std;
 
-#ifdef __linux__
-
 Task<bool> timertask(bool shouwake)
 {
 	CoTimer timer(std::chrono::milliseconds((int64_t)3000));
@@ -31,8 +29,6 @@ Task<bool> timertask(bool shouwake)
 	}
 }
 
-#endif
-
 Task<int> testadd(int a, int b)
 {
 	co_return a + b;
@@ -40,8 +36,6 @@ Task<int> testadd(int a, int b)
 
 Task<void> testCoroutineTask()
 {
-#ifdef __linux__
-
 	{ // CoTimer
 		std::cout << "CoTimer test start...\n";
 		auto task_shoudown = timertask(true);
@@ -56,7 +50,6 @@ Task<void> testCoroutineTask()
 		co_await CoSleep(1s);
 		std::cout << "CoSleep test end...\n";
 	}
-#endif
 
 	{
 		std::cout << "CoroTaskAdd test start...\n";
@@ -66,7 +59,6 @@ Task<void> testCoroutineTask()
 		std::cout << "CoroTaskAdd test end...\n";
 	}
 
-	//#ifdef __linux__
 	{
 
 		std::cout << "CoroConnection test start...\n";
@@ -81,7 +73,6 @@ Task<void> testCoroutineTask()
 			std::cout << "CoroConnection connect seccess!\n";
 		std::cout << "CoroConnection test end...\n";
 	}
-	//#endif
 }
 
 void testCoroutine()

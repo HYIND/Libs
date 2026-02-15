@@ -16,6 +16,7 @@ public:
 
     bool Register_Task(std::shared_ptr<TimerTaskHandle> task);
     bool Cancel_Task(std::shared_ptr<TimerTaskHandle> task);
+    bool Wake_Task(std::shared_ptr<TimerTaskHandle> task);
 
     TimerProcess(const TimerProcess&) = delete;
     TimerProcess& operator=(const TimerProcess&) = delete;
@@ -66,6 +67,10 @@ bool TimerProcess::Cancel_Task(std::shared_ptr<TimerTaskHandle> task)
 {
     return pImpl->Cancel_Task(task);
 };
+bool TimerProcess::Wake_Task(std::shared_ptr<TimerTaskHandle> task)
+{
+    return pImpl->Wake_Task(task);
+}
 
 
 TimerTask::TimerTask(const std::string &name,
@@ -117,6 +122,11 @@ bool TimerTask::Run()
 bool TimerTask::Stop()
 {
     return TimerProcess::Instance()->Cancel_Task(_handle);
+}
+
+bool TimerTask::Wake()
+{
+    return TimerProcess::Instance()->Wake_Task(_handle);
 }
 
 void TimerTask::Clean()

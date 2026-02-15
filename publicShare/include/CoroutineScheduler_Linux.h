@@ -34,7 +34,7 @@ private:
     void DoPostIOEvents(std::vector<Coro_IOuringOPData *> &opdatas);
 
 private:
-    bool SubmitTimerEvent(Coro_IOuringOPData *opdata);
+    bool SubmitTimeOutEvent(Coro_IOuringOPData *opdata);
     bool SubmitCoroutineEvent(Coro_IOuringOPData *opdata);
     bool SubmitConnectEvent(Coro_IOuringOPData *opdata);
 

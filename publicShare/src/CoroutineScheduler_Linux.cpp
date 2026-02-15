@@ -396,32 +396,21 @@ CoroutineScheduler *CoroutineScheduler::Instance()
 
 std::shared_ptr<CoTimer::Handle> CoroutineScheduler::create_timer(std::chrono::milliseconds interval)
 {
-    int timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
-    if (timer_fd < 0)
-    {
-        return std::shared_ptr<CoTimer::Handle>(nullptr);
-    }
-
-    struct itimerspec timerspec;
-    timerspec.it_value.tv_sec = interval.count() / 1000;
-    timerspec.it_value.tv_nsec = (interval.count() % 1000) * 1000000;
-    timerspec.it_interval.tv_sec = 0;
-    timerspec.it_interval.tv_nsec = 0;
-
-    if (timerfd_settime(timer_fd, 0, &timerspec, nullptr) < 0)
-    {
-        close(timer_fd);
-        return std::shared_ptr<CoTimer::Handle>(nullptr);
-    }
-
     auto handle = std::make_shared<CoTimer::Handle>();
-    handle->fd = timer_fd;
 
-    Coro_IOuringOPData *opdata = new Coro_IOuringOPData(Coro_IOUring_OPType::OP_TimeOut, handle);
-    // 提交读取定时器的SQE
-    _optaskqueue.enqueue(opdata);
-    _IOEventCV.notify_one();
+    auto timer = TimerTask::CreateOnce("", interval.count(), [this]()->void {
+        Coro_IOuringOPData* opdata = new Coro_IOuringOPData(Coro_IOUring_OPType::OP_TimeOut, handle);
+        _optaskqueue.enqueue(opdata);
+        _IOEventCV.notify_one();
+        });
 
+    if (!timer)
+    {
+        return std::shared_ptr<CoTimer::Handle>(nullptr);
+    }
+
+    handle->task = timer;
+    handle->task->Run();
     return handle;
 }
 
@@ -434,14 +423,9 @@ void CoroutineScheduler::wake_timer(std::shared_ptr<CoTimer::Handle> handle)
     auto expected = CoTimer::WakeType::RUNNING;
     handle->result.compare_exchange_strong(expected, CoTimer::WakeType::MANUAL_WAKE);
 
-    // 设置定时器立即触发
-    struct itimerspec new_value;
-    new_value.it_value.tv_sec = 0;
-    new_value.it_value.tv_nsec = 1; // 1纳秒后触发
-    new_value.it_interval.tv_sec = 0;
-    new_value.it_interval.tv_nsec = 0;
-
-    timerfd_settime(handle->fd, 0, &new_value, nullptr);
+    if (!handle->task)
+        return;
+    handle->task->Wake();
 }
 
 std::shared_ptr<TaskHandle> CoroutineScheduler::RegisterTaskCoroutine(std::coroutine_handle<> coroutine)
@@ -481,7 +465,7 @@ std::shared_ptr<CoConnection::Handle> CoroutineScheduler::create_connection(Base
     return handle;
 }
 
-bool CoroutineScheduler::SubmitTimerEvent(Coro_IOuringOPData *opdata)
+bool CoroutineScheduler::SubmitTimeOutEvent(Coro_IOuringOPData *opdata)
 {
     if (!opdata->timer_handle)
         return false;
@@ -489,14 +473,16 @@ bool CoroutineScheduler::SubmitTimerEvent(Coro_IOuringOPData *opdata)
     if (!sqe)
         return false;
 
-    io_uring_prep_poll_add(sqe, opdata->timer_handle->fd, POLL_IN);
-    io_uring_sqe_set_data(sqe, (void *)opdata);
+    io_uring_prep_nop(sqe);
+    io_uring_sqe_set_data(sqe, (void*)opdata);
 
     return true;
 }
 
 bool CoroutineScheduler::SubmitCoroutineEvent(Coro_IOuringOPData *opdata)
 {
+    if (!opdata->connection_handle)
+        return false;
     io_uring_sqe *sqe = io_uring_get_sqe(&ring);
     if (!sqe)
         return false;

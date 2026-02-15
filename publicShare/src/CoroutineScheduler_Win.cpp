@@ -1,6 +1,7 @@
 #include "Coroutine.h"
 #include "string.h"
 #include "CoroutineScheduler_Win.h"
+#include "Timer.h"
 
 #define SAFE_DELETE(x) \
     if (x)             \
@@ -102,7 +103,7 @@ struct Coro_IOCPOPData
 
 	std::shared_ptr<TaskHandle> task_handle;
 	std::shared_ptr<CoConnection::Handle> connection_handle;
-	//std::shared_ptr<CoTimer::Handle> timer_handle;
+	std::shared_ptr<CoTimer::Handle> timer_handle;
 
 	Coro_IOCPOPData(Coro_IOCP_OPType OP_Type)
 		: OP_Type(OP_Type) {
@@ -116,10 +117,10 @@ struct Coro_IOCPOPData
 		: OP_Type(OP_Type), connection_handle(handle) {
 		memset(&overlapped, 0, sizeof(OVERLAPPED));
 	}
-	//Coro_IOCPOPData(Coro_IOCP_OPType OP_Type, std::shared_ptr<CoTimer::Handle> handle)
-	//	: OP_Type(OP_Type), timer_handle(handle) {
-	//	memset(&overlapped, 0, sizeof(OVERLAPPED));
-	//}
+	Coro_IOCPOPData(Coro_IOCP_OPType OP_Type, std::shared_ptr<CoTimer::Handle> handle)
+		: OP_Type(OP_Type), timer_handle(handle) {
+		memset(&overlapped, 0, sizeof(OVERLAPPED));
+	}
 };
 
 CoroutineScheduler::CoroutineScheduler()
@@ -378,38 +379,38 @@ int CoroutineScheduler::EventProcess(Coro_IOCPOPData* opdata)
 
 	if (opdata->OP_Type == Coro_IOCP_OPType::OP_TimeOut)
 	{
-		//auto handle = opdata->timer_handle;
+		auto handle = opdata->timer_handle;
 
-		//if (!handle || !handle->active)
-		//	return 1;
+		if (!handle || !handle->active)
+			return 1;
 
-		//LockGuard lock(handle->corolock);
-		//if (handle->active)
-		//{
-		//	std::coroutine_handle<> coro = handle->coroutine;
-		//	if (coro && !coro.done())
-		//	{
-		//		auto task = [coro, handle]() -> void
-		//			{
-		//				if (handle)
-		//				{
-		//					bool expected = false;
-		//					if (handle->corodone.compare_exchange_strong(expected, true))
-		//					{
-		//						if (!coro.done())
-		//						{
-		//							coro.resume();
-		//							handle->coroutine = nullptr;
-		//						}
-		//					}
-		//				}
-		//			};
-		//		auto expected = CoTimer::WakeType::RUNNING;
-		//		handle->result.compare_exchange_strong(expected, CoTimer::WakeType::TIMEOUT);
-		//		ExcuteCoroutine(task); // 恢复对应的协程
-		//	}
-		//	handle->active = false;
-		//}
+		LockGuard lock(handle->corolock);
+		if (handle->active)
+		{
+			std::coroutine_handle<> coro = handle->coroutine;
+			if (coro && !coro.done())
+			{
+				auto task = [coro, handle]() -> void
+				{
+					if (handle)
+					{
+						bool expected = false;
+						if (handle->corodone.compare_exchange_strong(expected, true))
+						{
+							if (!coro.done())
+							{
+								coro.resume();
+								handle->coroutine = nullptr;
+							}
+						}
+					}
+				};
+				auto expected = CoTimer::WakeType::RUNNING;
+				handle->result.compare_exchange_strong(expected, CoTimer::WakeType::TIMEOUT);
+				ExcuteCoroutine(task); // 恢复对应的协程
+			}
+			handle->active = false;
+		}
 	}
 	else if (opdata->OP_Type == Coro_IOCP_OPType::OP_Coroutine)
 	{
@@ -418,11 +419,11 @@ int CoroutineScheduler::EventProcess(Coro_IOCPOPData* opdata)
 		if (handle->coroutine && !handle->coroutine.done())
 		{
 			auto task = [handle]() -> void
-				{
-					auto coro = handle->coroutine;
-					if (!coro.done())
-						coro.resume();
-				};
+			{
+				auto coro = handle->coroutine;
+				if (!coro.done())
+					coro.resume();
+			};
 			ExcuteCoroutine(task);
 		}
 	}
@@ -439,20 +440,20 @@ int CoroutineScheduler::EventProcess(Coro_IOCPOPData* opdata)
 			if (coro && !coro.done())
 			{
 				auto task = [coro, handle]() -> void
+				{
+					if (handle)
 					{
-						if (handle)
+						bool expected = false;
+						if (handle->corodone.compare_exchange_strong(expected, true))
 						{
-							bool expected = false;
-							if (handle->corodone.compare_exchange_strong(expected, true))
+							if (!coro.done())
 							{
-								if (!coro.done())
-								{
-									coro.resume();
-									handle->coroutine = nullptr;
-								}
+								coro.resume();
+								handle->coroutine = nullptr;
 							}
 						}
-					};
+					}
+				};
 				ExcuteCoroutine(task); // 恢复对应的协程
 			}
 			handle->active = false;
@@ -471,7 +472,7 @@ void CoroutineScheduler::DoPostIOEvents(std::vector<Coro_IOCPOPData*>& opdatas)
 		{
 		case Coro_IOCP_OPType::OP_TimeOut:
 		{
-			SubmitTimerEvent(opdata);
+			SubmitTimeOutEvent(opdata);
 		}
 		break;
 		case Coro_IOCP_OPType::OP_Coroutine:
@@ -495,6 +496,43 @@ CoroutineScheduler* CoroutineScheduler::Instance()
 {
 	static CoroutineScheduler* m_instance = new CoroutineScheduler();
 	return m_instance;
+}
+
+std::shared_ptr<CoTimer::Handle> CoroutineScheduler::create_timer(std::chrono::milliseconds interval)
+{
+	auto handle = std::make_shared<CoTimer::Handle>();
+
+	auto timer = TimerTask::CreateOnce("", interval.count(), [handle, this]()->void {
+		Coro_IOCPOPData* opdata = new Coro_IOCPOPData(Coro_IOCP_OPType::OP_TimeOut, handle);
+
+		bool success = SubmitTimeOutEvent(opdata);
+
+		if (!success)
+			delete opdata;
+		});
+
+	if (!timer)
+	{
+		return std::shared_ptr<CoTimer::Handle>(nullptr);
+	}
+
+	handle->task = timer;
+	handle->task->Run();
+	return handle;
+}
+
+// 立即唤醒定时器
+void CoroutineScheduler::wake_timer(std::shared_ptr<CoTimer::Handle> handle)
+{
+	if (!handle || !handle->active)
+		return;
+
+	auto expected = CoTimer::WakeType::RUNNING;
+	handle->result.compare_exchange_strong(expected, CoTimer::WakeType::MANUAL_WAKE);
+
+	if (!handle->task)
+		return;
+	handle->task->Wake();
 }
 
 std::shared_ptr<TaskHandle> CoroutineScheduler::RegisterTaskCoroutine(std::coroutine_handle<> coroutine)
@@ -533,18 +571,14 @@ std::shared_ptr<CoConnection::Handle> CoroutineScheduler::create_connection(Base
 	return handle;
 }
 
-bool CoroutineScheduler::SubmitTimerEvent(Coro_IOCPOPData* opdata)
+bool CoroutineScheduler::SubmitTimeOutEvent(Coro_IOCPOPData* opdata)
 {
-	//if (!opdata->timer_handle)
-	//	return false;
-	//io_uring_sqe* sqe = io_uring_get_sqe(&ring);
-	//if (!sqe)
-	//	return false;
-
-	//io_uring_prep_poll_add(sqe, opdata->timer_handle->fd, POLL_IN);
-	//io_uring_sqe_set_data(sqe, (void*)opdata);
-
-	return true;
+	return PostQueuedCompletionStatus(
+		_iocp,
+		0,
+		NULL,
+		&opdata->overlapped
+	) != 0;
 }
 
 bool CoroutineScheduler::SubmitCoroutineEvent(Coro_IOCPOPData* opdata)

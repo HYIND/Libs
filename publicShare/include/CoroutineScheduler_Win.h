@@ -13,6 +13,10 @@ public:
     void Stop();
     bool Running();
 
+public: // Timer
+    std::shared_ptr<CoTimer::Handle> create_timer(std::chrono::milliseconds interval);
+    void wake_timer(std::shared_ptr<CoTimer::Handle> weakhandle);
+
 public: // Task
     std::shared_ptr<TaskHandle> RegisterTaskCoroutine(std::coroutine_handle<> coroutine);
 
@@ -30,7 +34,7 @@ private:
     void DoPostIOEvents(std::vector<Coro_IOCPOPData *> &opdatas);
 
 private:
-    bool SubmitTimerEvent(Coro_IOCPOPData *opdata);
+    bool SubmitTimeOutEvent(Coro_IOCPOPData *opdata);
     bool SubmitCoroutineEvent(Coro_IOCPOPData *opdata);
     bool SubmitConnectEvent(Coro_IOCPOPData *opdata);
 

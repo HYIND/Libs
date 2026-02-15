@@ -74,13 +74,14 @@ public:
 public:
 	bool Register_Task(std::shared_ptr<TimerTaskHandle>& task);
 	bool Cancel_Task(std::shared_ptr<TimerTaskHandle>& task);
-	bool UpdateRepeat_Task(std::shared_ptr<TimerTaskHandle>& handle);
+	bool Wake_Task(std::shared_ptr<TimerTaskHandle>& task);
 
 private:
 	void Run();
 	void Cascade(int level_idx);
 	int EventProcess(std::shared_ptr<TimerTaskHandle>& task);
 
+	bool UpdateRepeat_Task(std::shared_ptr<TimerTaskHandle>& handle);
 private:
 	std::atomic<bool> _isrunning;
 	std::atomic<int64_t> next_timer_id;

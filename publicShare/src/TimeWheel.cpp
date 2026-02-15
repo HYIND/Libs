@@ -211,11 +211,10 @@ bool HierarchicalTimeWheel::Register_Task(std::shared_ptr<TimerTaskHandle>& hand
 		// 当前层能容纳这个定时器
 		if (handle->delay_ms_ < _levels[i]->range_ms || i == _levels.size() - 1)
 		{
-			_levels[i]->addTimer(timer_id, expiretime, handle);
-
 			// 保存映射关系
 			handle->mark_valid();
 			_timers.InsertOrUpdate(timer_id, handle);
+			_levels[i]->addTimer(timer_id, expiretime, handle);
 			return true;
 		}
 	}
@@ -242,6 +241,38 @@ bool HierarchicalTimeWheel::Cancel_Task(std::shared_ptr<TimerTaskHandle>& handle
 	return true;
 }
 
+bool HierarchicalTimeWheel::Wake_Task(std::shared_ptr<TimerTaskHandle>& handle)
+{
+	if (!Running() || !handle || !handle->is_valid())
+		return false;
+
+	constexpr uint64_t delay_ms = 0;
+
+	int64_t timer_id = next_timer_id++;
+	int64_t expiretime = TimeWheel::GetTimestampMilliseconds() + delay_ms;
+
+	handle->id = timer_id;
+
+	LockGuard guard = _timers.MakeLockGuard();
+	if (!handle->is_valid())
+		return false;
+
+	// 选择合适的层级
+	for (size_t i = 0; i < _levels.size(); ++i)
+	{
+		// 当前层能容纳这个定时器
+		if (delay_ms < _levels[i]->range_ms || i == _levels.size() - 1)
+		{
+			// 保存映射关系
+			_timers.InsertOrUpdate(timer_id, handle);
+			_levels[i]->addTimer(timer_id, expiretime, handle);
+			return true;
+		}
+	}
+
+	return false;
+}
+
 bool HierarchicalTimeWheel::UpdateRepeat_Task(std::shared_ptr<TimerTaskHandle>& handle)
 {
 	if (!Running() || !handle || !handle->is_valid())
@@ -260,12 +291,11 @@ bool HierarchicalTimeWheel::UpdateRepeat_Task(std::shared_ptr<TimerTaskHandle>& 
 	for (size_t i = 0; i < _levels.size(); ++i)
 	{
 		// 当前层能容纳这个定时器
-		if (handle->delay_ms_ < _levels[i]->range_ms || i == _levels.size() - 1)
+		if (handle->interval_ms_ < _levels[i]->range_ms || i == _levels.size() - 1)
 		{
-			_levels[i]->addTimer(timer_id, expiretime, handle);
-
 			// 保存映射关系
 			_timers.InsertOrUpdate(timer_id, handle);
+			_levels[i]->addTimer(timer_id, expiretime, handle);
 			return true;
 		}
 	}

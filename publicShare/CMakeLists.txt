@@ -43,10 +43,10 @@ list(APPEND ALL_SRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/Timer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/TimeWheel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/HighPrecisionTimer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/CoroTimer.cpp
 )
 
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-    list(APPEND ALL_SRC_FILES  ${CMAKE_CURRENT_SOURCE_DIR}/src/CoroTimer.cpp)
     list(APPEND ALL_SRC_FILES  ${CMAKE_CURRENT_SOURCE_DIR}/src/CoroutineScheduler_Linux.cpp)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
     list(APPEND ALL_SRC_FILES  ${CMAKE_CURRENT_SOURCE_DIR}/src/CoroutineScheduler_Win.cpp)
