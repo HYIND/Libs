@@ -128,7 +128,7 @@ CoConnection::CoConnection(const std::string &ip, const int port)
 	localaddr.sin_port = htons(0);
 
 #ifdef _WIN32
-// BaseSocket socket = NewClientSocket(ip, port, IPPROTO_TCP, remoteaddr);
+	BaseSocket socket = NewClientSocket(ip, port, IPPROTO_TCP, remoteaddr);
 #elif __linux__
 	BaseSocket socket = NewClientSocket(ip, port, SOCK_STREAM, remoteaddr);
 #endif
