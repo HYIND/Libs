@@ -441,7 +441,6 @@ public:
 		~Handle();
 
 		BaseSocket socket;
-		sockaddr_in localaddr;
 		sockaddr_in remoteaddr;
 
 		bool active;

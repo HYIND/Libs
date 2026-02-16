@@ -441,12 +441,15 @@ std::shared_ptr<TaskHandle> CoroutineScheduler::RegisterTaskCoroutine(std::corou
     return handle;
 }
 
-std::shared_ptr<CoConnection::Handle> CoroutineScheduler::create_connection(BaseSocket fd, sockaddr_in localaddr, sockaddr_in remoteaddr)
+std::shared_ptr<CoConnection::Handle> CoroutineScheduler::create_connection(BaseSocket fd, const std::string& IP, int port)
 {
     auto handle = std::make_shared<CoConnection::Handle>();
     handle->socket = fd;
-    handle->localaddr = localaddr;
-    handle->remoteaddr = remoteaddr;
+
+    memset(&handle->remoteaddr, 0, sizeof(handle->remoteaddr));
+    handle->remoteaddr.sin_family = AF_INET;
+    handle->remoteaddr.sin_port = htons(port);
+    inet_pton(AF_INET, IP.c_str(), &(handle->remoteaddr.sin_addr.s_addr));
 
     Coro_IOuringOPData *opdata = new Coro_IOuringOPData(Coro_IOUring_OPType::OP_Connect, handle);
     opdata->fd = fd;

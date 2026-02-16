@@ -11,8 +11,7 @@
 #include <cstring>
 #endif
 
-#ifdef __linux__
-BaseSocket NewClientSocket(const std::string &IP, uint16_t port, __socket_type protocol, sockaddr_in &sock_addr)
+BaseSocket NewClientSocket(const std::string &IP, uint16_t port, int protocol, sockaddr_in &sock_addr)
 {
 	memset(&sock_addr, 0, sizeof(sock_addr));
 	sock_addr.sin_family = AF_INET;
@@ -22,33 +21,6 @@ BaseSocket NewClientSocket(const std::string &IP, uint16_t port, __socket_type p
 
 	return ::socket(PF_INET, protocol, 0);
 }
-
-#elif _WIN32
-BaseSocket NewClientSocket(const std::string& IP, uint16_t port, int type, sockaddr_in& sock_addr)
-{
-	ZeroMemory(&sock_addr, sizeof(sock_addr));
-	sock_addr.sin_family = AF_INET;
-	sock_addr.sin_port = htons(port);
-
-	inet_pton(AF_INET, IP.c_str(), &(sock_addr.sin_addr.s_addr));
-
-	// 根据协议确定套接字类型
-	int protocol;
-	switch (type)
-	{
-	case SOCK_STREAM:
-		protocol = IPPROTO_TCP;
-		break;
-	case SOCK_DGRAM:
-		protocol = IPPROTO_UDP;
-		break;
-	default:
-		protocol = 0;
-	}
-
-	return WSASocket(sock_addr.sin_family, type, protocol, NULL, 0, WSA_FLAG_OVERLAPPED);
-}
-#endif
 
 CoConnection::Handle::Handle()
 	: socket(0), active(true), corodone{false}
@@ -111,7 +83,6 @@ BaseSocket CoConnection::Awaiter::await_resume()
 CoConnection::CoConnection(const std::string &ip, const int port)
 {
 #ifdef _WIN32
-
 	static std::atomic<bool> initwin{false};
 	bool execpted = false;
 	if (initwin.compare_exchange_strong(execpted, true))
@@ -141,21 +112,7 @@ CoConnection::CoConnection(const std::string &ip, const int port)
 		return;
 	}
 
-#ifdef _WIN32
-	int result = connect(socket, (struct sockaddr *)&remoteaddr, sizeof(struct sockaddr));
-	if (result < 0)
-	{
-		perror("connect socket error");
-		return;
-	}
-
-	handle = std::make_shared<Handle>();
-	handle->active = false;
-	handle->socket = socket;
-
-#elif __linux__
-	handle = CoroutineScheduler::Instance()->create_connection(socket, localaddr, remoteaddr);
-#endif
+	handle = CoroutineScheduler::Instance()->create_connection(socket, ip, port);
 }
 
 CoConnection::~CoConnection() {}

@@ -3,8 +3,7 @@
 
 using namespace std;
 
-#ifdef __linux__
-BaseSocket NewClientSocket(const std::string& IP, uint16_t port, __socket_type protocol, sockaddr_in& sock_addr)
+BaseSocket NewClientSocket(const std::string& IP, uint16_t port, int protocol, sockaddr_in& sock_addr)
 {
 	memset(&sock_addr, 0, sizeof(sock_addr));
 	sock_addr.sin_family = AF_INET;
@@ -14,33 +13,6 @@ BaseSocket NewClientSocket(const std::string& IP, uint16_t port, __socket_type p
 
 	return ::socket(PF_INET, protocol, 0);
 }
-
-#elif _WIN32
-BaseSocket NewClientSocket(const std::string& IP, uint16_t port, int type, sockaddr_in& sock_addr)
-{
-	ZeroMemory(&sock_addr, sizeof(sock_addr));
-	sock_addr.sin_family = AF_INET;
-	sock_addr.sin_port = htons(port);
-
-	inet_pton(AF_INET, IP.c_str(), &(sock_addr.sin_addr.s_addr));
-
-	// 根据协议确定套接字类型
-	int protocol;
-	switch (type)
-	{
-	case SOCK_STREAM:
-		protocol = IPPROTO_TCP;
-		break;
-	case SOCK_DGRAM:
-		protocol = IPPROTO_UDP;
-		break;
-	default:
-		protocol = 0;
-	}
-
-	return WSASocket(sock_addr.sin_family, type, protocol, NULL, 0, WSA_FLAG_OVERLAPPED);
-}
-#endif
 
 TCPTransportConnection::TCPTransportConnection() : BaseTransportConnection(SocketType::TCP, true)
 {
@@ -85,7 +57,7 @@ Task<bool> TCPTransportConnection::ConnectAsync(const std::string& IP, uint16_t 
 	int result = co_await CoConnection(IP, Port);
 	if (result <= 0)
 	{
-		perror("connectAsync socket error");
+		std::cout << "connectAsync socket error\n";
 		co_return false;
 	}
 

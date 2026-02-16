@@ -10,63 +10,114 @@
         x = nullptr;   \
     }
 
-#define ENTRIES 3000
-
-static LPFN_CONNECTEX ConnectExPtr = nullptr;
-
-bool ValidateConnectExResult(SOCKET socket) {
-	// 步骤1：等待一小段时间让连接完全建立
-	Sleep(10);  // 10ms 等待
-
-	// 步骤2：检查多个指标
-	bool indicators[3] = { false };
-
-	// 指标1：select 检查
-	fd_set writeSet;
-	FD_ZERO(&writeSet);
-	FD_SET(socket, &writeSet);
-	timeval tv = { 0, 10000 };  // 10ms
-	indicators[0] = (select(0, nullptr, &writeSet, nullptr, &tv) == 1);
-
-	// 指标2：getpeername 检查
-	sockaddr_in addr;
-	int len = sizeof(addr);
-	indicators[1] = (getpeername(socket, (sockaddr*)&addr, &len) == 0);
-
-	// 指标3：发送测试
-	char testByte = 0;
-	indicators[2] = (send(socket, &testByte, 0, 0) == 0);
-
-	// 至少两个指标通过才算成功
-	int passCount = 0;
-	for (bool b : indicators) if (b) passCount++;
-
-	return passCount >= 2;
-}
-
-LPFN_CONNECTEX GetConnectExFunction(SOCKET s) {
-	LPFN_CONNECTEX ConnectExPtr = nullptr;
-	GUID guidConnectEx = WSAID_CONNECTEX;
-	DWORD bytes = 0;
-
-	// 通过WSAIoctl获取ConnectEx函数指针
-	if (WSAIoctl(s, SIO_GET_EXTENSION_FUNCTION_POINTER,
-		&guidConnectEx, sizeof(guidConnectEx),
-		&ConnectExPtr, sizeof(ConnectExPtr),
-		&bytes, nullptr, nullptr) == SOCKET_ERROR) {
-		return nullptr;
-	}
-	return ConnectExPtr;
-}
-
-bool ConnectPtrNeed(SOCKET socket)
+AsyncConnector::AsyncConnector() {}
+AsyncConnector::~AsyncConnector()
 {
-	if (::ConnectExPtr)
-		return true;
-
-	::ConnectExPtr = GetConnectExFunction(socket);
-	return ::ConnectExPtr != nullptr;
+	Cleanup();
 }
+
+void AsyncConnector::Connect(SOCKET s, const std::string& ip, const int port, void* userdata)
+{
+	WSAEVENT hEvent = WSACreateEvent();
+	WSAEventSelect(s, hEvent, FD_CONNECT);
+
+	sockaddr_in remoteaddr;
+	ZeroMemory(&remoteaddr, sizeof(remoteaddr));
+	remoteaddr.sin_family = AF_INET;
+	remoteaddr.sin_port = htons(port);
+	inet_pton(AF_INET, ip.c_str(), &(remoteaddr.sin_addr.s_addr));
+	contexts.emplace(SocketContext{ s, hEvent, ip, port,userdata });
+
+	::connect(s, (sockaddr*)&remoteaddr, sizeof(remoteaddr));
+}
+
+bool AsyncConnector::GetDoneEvents(std::vector<ConnectEvent>& events)
+{
+	bool result = false;
+	ConnectEvent event;
+	while (GetEvent(event)) {
+		events.emplace_back(std::move(event));
+		result = true;
+	}
+	return result;
+}
+
+bool AsyncConnector::GetEvent(ConnectEvent& event)
+{
+	if (contexts.empty())
+		return false;
+
+	std::vector<WSAEVENT> events;
+
+	contexts.EnsureCall(
+		[&events](std::vector<AsyncConnector::SocketContext>& array)->void {
+			for (auto& ctx : array)
+				events.push_back(ctx.hEvent);
+		}
+	);
+
+	// 等待事件
+	DWORD dwIndex = WSAWaitForMultipleEvents(
+		(DWORD)events.size(),
+		events.data(),
+		FALSE,  // 任一事件触发
+		0,		// 不等待立即返回
+		FALSE
+	);
+
+	if (dwIndex == WSA_WAIT_FAILED) {
+		//printf("AsyncConnector WaitEvents 失败: %d\n", WSAGetLastError());
+		return false;
+	}
+
+	if (dwIndex == WSA_WAIT_TIMEOUT) {
+		return false;  // 没有事件就绪
+	}
+
+	if (dwIndex >= WSA_WAIT_EVENT_0 &&
+		dwIndex < WSA_WAIT_EVENT_0 + events.size()) {
+
+		// 计算触发的事件索引
+		int eventIdx = dwIndex - WSA_WAIT_EVENT_0;
+
+		// 通过索引找到对应的 socket 上下文
+		SocketContext& ctx = contexts[eventIdx];
+
+		// 枚举该 socket 上的所有事件
+		WSANETWORKEVENTS netEvents;
+		WSAEnumNetworkEvents(ctx.s, ctx.hEvent, &netEvents);
+
+		//printf("Socket %lld (%s:%d) 触发事件\n",
+		//	ctx.s, ctx.address.c_str(), ctx.port);
+
+		if (netEvents.lNetworkEvents & FD_CONNECT)
+		{
+			int error = netEvents.iErrorCode[FD_CONNECT_BIT];
+			//printf("  - FD_CONNECT, 错误码: %d\n", error);
+			event.error = error;
+		}
+		event.s = ctx.s;
+		event.userdata = ctx.userdata;
+		auto guard = contexts.MakeLockGuard();
+		WSAEventSelect(ctx.s, NULL, 0);
+		contexts.deleteIndexElement(eventIdx);
+		return true;
+	}
+	return false;
+}
+
+void AsyncConnector::Cleanup()
+{
+	contexts.EnsureCall(
+		[](std::vector<AsyncConnector::SocketContext>& array)->void {
+			for (auto& ctx : array)
+				WSAEventSelect(ctx.s, NULL, 0);
+			array.clear();
+		}
+	);
+}
+
+#define ENTRIES 3000
 
 bool CreateIOCP(HANDLE& handle) {
 	HANDLE iocp = CreateIoCompletionPort(
@@ -126,6 +177,7 @@ struct Coro_IOCPOPData
 CoroutineScheduler::CoroutineScheduler()
 	: _shouldshutdown(false), _isinitsuccess(false), _isrunning(false), _ExcuteEventProcessPool(4)
 {
+	_asyncConnector = std::make_unique<AsyncConnector>();
 	_isinitsuccess = CreateIOCP(_iocp);
 
 	if (!Running() && _isinitsuccess)
@@ -302,58 +354,7 @@ bool CoroutineScheduler::GetDoneIOEvents(std::vector<Coro_IOCPOPData*>& opdatas)
 
 				if (opdata)
 				{
-					if (opdata->OP_Type == Coro_IOCP_OPType::OP_Connect)
-					{
-						int socket_error = 0;
-						int error_len = sizeof(socket_error);
-
-						if (!opdata->connection_handle)
-							continue;
-
-						if (getsockopt(opdata->connection_handle->socket, SOL_SOCKET, SO_ERROR,
-							(char*)&socket_error, &error_len) == 0)
-						{
-							if (socket_error == 0)
-							{
-								if (ValidateConnectExResult(opdata->connection_handle->socket))
-								{
-									setsockopt(opdata->connection_handle->socket, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT,
-										nullptr, 0);
-									opdata->res = opdata->connection_handle->socket;
-								}
-								else
-								{
-									opdata->res = 0;
-									if (opdata->connection_handle)
-									{
-										closesocket(opdata->connection_handle->socket);
-										opdata->connection_handle->socket = 0;
-									}
-								}
-							}
-							else
-							{
-								opdata->res = 0;
-								if (opdata->connection_handle)
-								{
-									closesocket(opdata->connection_handle->socket);
-									opdata->connection_handle->socket = 0;
-								}
-							}
-						}
-						else
-						{
-							opdata->res = 0;
-							//opdata->error_code = WSAGetLastError();
-							if (opdata->connection_handle)
-							{
-								closesocket(opdata->connection_handle->socket);
-								opdata->connection_handle->socket = 0;
-							}
-						}
-					}
-
-					else if (opdata->OP_Type == Coro_IOCP_OPType::OP_TimeOut)
+					if (opdata->OP_Type == Coro_IOCP_OPType::OP_TimeOut)
 					{
 						opdata->res = entry.dwNumberOfBytesTransferred;
 					}
@@ -366,6 +367,32 @@ bool CoroutineScheduler::GetDoneIOEvents(std::vector<Coro_IOCPOPData*>& opdatas)
 
 		if (recvsize < batchsize) {
 			break;
+		}
+	}
+
+	{
+		std::vector<AsyncConnector::ConnectEvent> connectEvents;
+		_asyncConnector->GetDoneEvents(connectEvents);
+		if (!connectEvents.empty())
+		{
+			for (auto& event : connectEvents)
+			{
+				if (event.userdata == nullptr)
+					continue;
+
+				Coro_IOCPOPData* opdata = (Coro_IOCPOPData*)(event.userdata);
+				if (event.error != 0)
+				{
+					opdata->res = 0;
+					if (opdata->connection_handle)
+						opdata->connection_handle->socket = 0;
+				}
+				else
+				{
+					opdata->res = event.s;
+				}
+				opdatas.push_back(opdata);
+			}
 		}
 	}
 
@@ -484,7 +511,7 @@ void CoroutineScheduler::DoPostIOEvents(std::vector<Coro_IOCPOPData*>& opdatas)
 		break;
 		case Coro_IOCP_OPType::OP_Connect:
 		{
-			SubmitConnectEvent(opdata);
+			SAFE_DELETE(opdata);
 		}
 		break;
 		default:
@@ -551,16 +578,19 @@ std::shared_ptr<TaskHandle> CoroutineScheduler::RegisterTaskCoroutine(std::corou
 	return handle;
 }
 
-std::shared_ptr<CoConnection::Handle> CoroutineScheduler::create_connection(BaseSocket socket, sockaddr_in& localaddr, sockaddr_in& remoteaddr)
+std::shared_ptr<CoConnection::Handle> CoroutineScheduler::create_connection(BaseSocket socket, const std::string& IP, int port)
 {
 	auto handle = std::make_shared<CoConnection::Handle>();
 	handle->socket = socket;
-	handle->localaddr = localaddr;
-	handle->remoteaddr = remoteaddr;
+
+	memset(&handle->remoteaddr, 0, sizeof(handle->remoteaddr));
+	handle->remoteaddr.sin_family = AF_INET;
+	handle->remoteaddr.sin_port = htons(port);
+	handle->remoteaddr.sin_addr.s_addr = inet_addr(IP.c_str());
 
 	Coro_IOCPOPData* opdata = new Coro_IOCPOPData(handle);
-	_optaskqueue.enqueue(opdata);
-	_IOEventCV.notify_one();
+
+	_asyncConnector->Connect(socket, IP, port, opdata);
 
 	return handle;
 }
@@ -585,51 +615,3 @@ bool CoroutineScheduler::SubmitCoroutineEvent(Coro_IOCPOPData* opdata)
 	) != 0;
 }
 
-bool CoroutineScheduler::SubmitConnectEvent(Coro_IOCPOPData* opdata)
-{
-	if (!opdata->connection_handle)
-		return false;
-
-	if (!ConnectPtrNeed(opdata->connection_handle->socket))
-		return false;
-
-	if (!AssociateSocketWithIOCP((HANDLE)opdata->connection_handle->socket, (ULONG_PTR)opdata->connection_handle->socket))
-		return false;
-
-	DWORD bytesSent = 0;
-	BOOL result = ConnectExPtr(
-		opdata->connection_handle->socket,
-		(sockaddr*)&opdata->connection_handle->remoteaddr,
-		sizeof(opdata->connection_handle->remoteaddr),
-		nullptr,
-		0,
-		&opdata->res,
-		&opdata->overlapped
-	);
-
-	if (result == SOCKET_ERROR) {
-		int error = WSAGetLastError();
-		if (error != WSA_IO_PENDING) {
-			return false;
-		}
-	}
-
-	return true;
-}
-
-bool CoroutineScheduler::AssociateSocketWithIOCP(HANDLE handle, ULONG_PTR completionKey)
-{
-	HANDLE iocp = _iocp;
-	if (iocp == NULL)
-		return false;
-
-	HANDLE hResult = CreateIoCompletionPort(
-		handle,
-		iocp,
-		completionKey,
-		0
-	);
-
-	bool success = (hResult == iocp);
-	return success;
-}
