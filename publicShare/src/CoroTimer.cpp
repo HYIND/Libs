@@ -34,11 +34,11 @@ void CoTimer::Awaiter::await_suspend(std::coroutine_handle<> coro)
 {
 
 	auto trytoresume = [&]() -> void
-	{
-		bool expected = false;
-		if (handle->corodone.compare_exchange_strong(expected, true))
-			coro.resume();
-	};
+		{
+			bool expected = false;
+			if (handle->corodone.compare_exchange_strong(expected, true))
+				coro.resume();
+		};
 
 	if (!handle || !handle->active)
 	{
@@ -75,6 +75,22 @@ CoTimer::CoTimer(std::chrono::milliseconds timeout)
 	handle = CoroutineScheduler::Instance()->create_timer(timeout);
 	if (!handle)
 		std::cerr << "CoTimer create_timer fail!";
+}
+
+CoTimer::CoTimer(CoTimer&& other) noexcept
+{
+	handle = other.handle;
+	other.handle.reset();
+}
+
+CoTimer& CoTimer::operator=(CoTimer&& other) noexcept
+{
+	if (this != &other)
+	{
+		handle = other.handle;
+		other.handle.reset();
+	}
+	return *this;
 }
 
 CoTimer::~CoTimer()

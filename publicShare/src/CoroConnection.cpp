@@ -115,6 +115,22 @@ CoConnection::CoConnection(const std::string &ip, const int port)
 	handle = CoroutineScheduler::Instance()->create_connection(socket, ip, port);
 }
 
+CoConnection::CoConnection(CoConnection&& other) noexcept
+{
+	handle = other.handle;
+	other.handle.reset();
+}
+
+CoConnection& CoConnection::operator=(CoConnection&& other) noexcept
+{
+	if (this != &other)
+	{
+		handle = other.handle;
+		other.handle.reset();
+	}
+	return *this;
+}
+
 CoConnection::~CoConnection() {}
 
 CoConnection::Awaiter CoConnection::operator co_await()
