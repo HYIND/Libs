@@ -181,14 +181,8 @@ void TCPTransportConnection::OnREAD(BaseSocket socket)
 		recvcount--;
 	}
 
-	bool expected = false;
-	while (!_isProcessing.compare_exchange_strong(expected, true));
-	{
-		expected = false;
-		std::this_thread::yield();
-	}
+	std::lock_guard<SpinLock> processlock(_ProcessLock);
 	ProcessRecvQueue();
-	_isProcessing.store(false);
 }
 void TCPTransportConnection::OnACCEPT(BaseSocket socket) {}
 #endif
