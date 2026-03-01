@@ -98,16 +98,20 @@ LockGuard::~LockGuard()
 
 void LockGuard::lock()
 {
-    if (_isownlock)
-        return;
-    _lock.Enter();
-    _isownlock = true;
+    if (!_isownlock)
+    {
+        _lock.Enter();
+        _isownlock = true;
+    }
 }
 
 void LockGuard::unlock()
 {
     if (_isownlock)
+    {
         _lock.Leave();
+        _isownlock = false;
+    }
 }
 
 void ConditionVariable::Wait(LockGuard &lock)

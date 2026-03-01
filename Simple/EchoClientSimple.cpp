@@ -77,12 +77,8 @@ public:
 	{
 		{
 			// async
-			auto task = session->ConnectAsync(IP, Port);
+			auto task = session->Connect(IP, Port);
 			isconnected = task.sync_wait();
-		}
-		{
-			// sync
-			//isconnected = session->Connect(IP, Port);
 		}
 
 		if (isconnected)

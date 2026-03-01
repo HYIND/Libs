@@ -11,6 +11,7 @@ using Base = TCPEndPoint;
 
 PureTCPClient::PureTCPClient(TCPTransportConnection *con)
 {
+    isHandshakeComplete = true;
     Protocol = TCPNetProtocol::PureTCP;
     if (con)
         BaseCon = std::shared_ptr<TCPTransportConnection>(con);
@@ -29,14 +30,9 @@ PureTCPClient::~PureTCPClient()
     Release();
 }
 
-bool PureTCPClient::Connect(const std::string &IP, uint16_t Port)
+Task<bool> PureTCPClient::Connect(std::string IP, uint16_t Port)
 {
-    return Base::Connect(IP, Port);
-}
-
-Task<bool> PureTCPClient::ConnectAsync(const std::string &IP, uint16_t Port)
-{
-    co_return co_await Base::ConnectAsync(IP, Port);
+    co_return co_await Base::Connect(IP, Port);
 }
 
 bool PureTCPClient::Release()
@@ -96,25 +92,18 @@ bool PureTCPClient::Send(const Buffer &buffer)
     }
 }
 
-bool PureTCPClient::TryHandshake(uint32_t timeOutMs)
-{
-    return true;
-}
-
-Task<bool> PureTCPClient::TryHandshakeAsync(uint32_t timeOutMs)
+Task<bool> PureTCPClient::TryHandshake()
 {
     co_return true;
 }
 
 CheckHandshakeStatus PureTCPClient::CheckHandshakeTryMsg(Buffer &buffer)
 {
-    isHandshakeComplete = true;
     return CheckHandshakeStatus::Success;
 }
 
 CheckHandshakeStatus PureTCPClient::CheckHandshakeConfirmMsg(Buffer &buffer)
 {
-    isHandshakeComplete = true;
     return CheckHandshakeStatus::Success;
 }
 
@@ -122,15 +111,7 @@ void PureTCPClient::OnBindMessageCallBack()
 {
     if (_ProcessLock.trylock())
     {
-        try
-        {
-            ProcessCacheBuffer();
-        }
-        catch (const std::exception &e)
-        {
-            _ProcessLock.unlock();
-            std::cerr << e.what() << '\n';
-        }
+        ProcessCacheBuffer();
         _ProcessLock.unlock();
     }
 }

@@ -27,36 +27,19 @@ WebSocketClient::~WebSocketClient()
     SAFE_DELETE(cachePak);
 }
 
-bool WebSocketClient::Connect(const std::string &IP, uint16_t Port)
+Task<bool> WebSocketClient::Connect(std::string IP, uint16_t Port)
 {
-    if (!Base::Connect(IP, Port))
-        return false;
-
-    // 尝试握手，超时时间10秒
-    if (!TryHandshake(10 * 1000))
-    {
-        std::cout << "WebSocketClient::Connect TryHandshake Connect Fail! CloseConnection\n";
-        Release();
-        return false;
-    }
-
-    return true;
-}
-
-Task<bool> WebSocketClient::ConnectAsync(const std::string &IP, uint16_t Port)
-{
-    if (!co_await Base::ConnectAsync(IP, Port))
+    if (!co_await Base::Connect(IP, Port))
         co_return false;
 
-    // 尝试握手，超时时间10秒
-    if (!co_await TryHandshakeAsync(10 * 1000))
+    if (!co_await TryHandshake())
     {
         std::cout << "WebSocketClient::Connect TryHandshake Connect Fail! CloseConnection\n";
         Release();
         co_return false;
     }
 
-    co_return co_await Base::ConnectAsync(IP, Port);
+    co_return true;
 }
 
 bool WebSocketClient::Release()
@@ -79,8 +62,6 @@ bool WebSocketClient::Release()
     {
         SAFE_DELETE(pak);
     }
-
-    _tryHandshakeCV.notify_all();
 
     return result;
 }
@@ -185,40 +166,18 @@ bool WebSocketClient::Send(const Buffer &buffer)
     }
 }
 
-bool WebSocketClient::TryHandshake(uint32_t timeOutMs)
-{
-    std::unique_lock<std::mutex> lock(_tryHandshakeMutex);
-
-    std::string request;
-    WebSocketAnalysisHelp::GenerateHandshakeRequest(request, _SecWsKey);
-    Buffer req(request);
-    if (!BaseCon->Send(req))
-        return false;
-
-    // 等待握手结果，超时或者被唤醒时触发，返回isHandshakeComplete
-    return _tryHandshakeCV.wait_for(lock,
-                                    std::chrono::milliseconds(timeOutMs),
-                                    [this]
-                                    { return isHandshakeComplete; });
-}
-
-Task<bool> WebSocketClient::TryHandshakeAsync(uint32_t timeOutMs)
+Task<bool> WebSocketClient::TryHandshake()
 {
     std::string request;
     WebSocketAnalysisHelp::GenerateHandshakeRequest(request, _SecWsKey);
     Buffer req(request);
 
-    if (_handshaketimeout)
-        SAFE_DELETE(_handshaketimeout);
-
-    _handshaketimeout = new CoTimer(std::chrono::milliseconds((int64_t)timeOutMs));
+    _handshaketimer = std::make_shared<CoTimer>(std::chrono::milliseconds(_handshaketimeOutMs));
     if (!BaseCon->Send(req))
         co_return false;
 
-    co_await (*_handshaketimeout);
-    LockGuard lock(_Colock);
-    SAFE_DELETE(_handshaketimeout);
-
+    co_await (*_handshaketimer);
+    _handshaketimer.reset();
     co_return isHandshakeComplete;
 }
 
@@ -287,11 +246,10 @@ CheckHandshakeStatus WebSocketClient::CheckHandshakeConfirmMsg(Buffer &buffer)
 
         isHandshakeComplete = true;
 
-        LockGuard lock(_Colock);
-        if (_handshaketimeout)
-            _handshaketimeout->wake();
-        else
-            _tryHandshakeCV.notify_all();
+        auto timer = _handshaketimer;
+        if (timer)
+            timer->wake();
+
         return CheckHandshakeStatus::Success;
     }
 

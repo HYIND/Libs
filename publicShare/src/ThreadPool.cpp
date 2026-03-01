@@ -108,7 +108,7 @@ std::weak_ptr<int> ThreadPool::CommitTask(uint32_t thread_id, std::function<void
 
     auto &data = _threads[thread_id];
     {
-        LockGuard lock(data->queue_mutex);
+        LockGuard guard(data->queue_mutex);
         data->queue.enqueue(std::move(task));
         data->queue_cv.NotifyOne();
     }

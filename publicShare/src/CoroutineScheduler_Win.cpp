@@ -2,6 +2,7 @@
 #include "string.h"
 #include "CoroutineScheduler_Win.h"
 #include "Timer.h"
+#include "SpinLock.h"
 
 #define SAFE_DELETE(x) \
     if (x)             \
@@ -205,10 +206,12 @@ int CoroutineScheduler::Run()
 		}
 
 		_ExcuteEventProcessPool.start();
+		std::thread CoTaskReleaseLoop(&CoroutineScheduler::LoopCoTaskRelease, this);
 		std::thread IOEventLoop(&CoroutineScheduler::LoopSubmitIOEvent, this);
 		std::thread EventLoop(&CoroutineScheduler::Loop, this);
 		EventLoop.join();
 		IOEventLoop.join();
+		CoTaskReleaseLoop.join();
 		_ExcuteEventProcessPool.stop();
 
 		if (_iocp && _iocp != INVALID_HANDLE_VALUE)
@@ -249,9 +252,30 @@ void CoroutineScheduler::Stop()
 	}
 }
 
+void CoroutineScheduler::LoopCoTaskRelease()
+{
+	do
+	{
+
+		std::unique_lock<std::mutex> lock(_CoTaskReleaseLock);
+		_CoTaskReleaseCV.wait_for(lock, std::chrono::milliseconds(50));
+
+		if (_shouldshutdown || !_isrunning)
+			break;
+
+		constexpr size_t BATCH_SIZE = 100;
+		while (!_pendingReleaseTasks.empty())
+		{
+			std::shared_ptr<std::coroutine_handle<>> handle;
+			for (size_t i = 0; i < BATCH_SIZE && _pendingReleaseTasks.dequeue(handle); ++i)
+				handle.reset();
+		}
+
+	} while (_isrunning && !_shouldshutdown);
+}
+
 void CoroutineScheduler::LoopSubmitIOEvent()
 {
-
 	if (!_isrunning || _shouldshutdown)
 		return;
 
@@ -418,20 +442,20 @@ int CoroutineScheduler::EventProcess(Coro_IOCPOPData* opdata)
 			if (coro && !coro.done())
 			{
 				auto task = [coro, handle]() -> void
-				{
-					if (handle)
 					{
-						bool expected = false;
-						if (handle->corodone.compare_exchange_strong(expected, true))
+						if (handle)
 						{
-							if (!coro.done())
+							bool expected = false;
+							if (handle->corodone.compare_exchange_strong(expected, true))
 							{
-								coro.resume();
-								handle->coroutine = nullptr;
+								if (!coro.done())
+								{
+									coro.resume();
+									//handle->coroutine = nullptr;
+								}
 							}
 						}
-					}
-				};
+					};
 				auto expected = CoTimer::WakeType::RUNNING;
 				handle->result.compare_exchange_strong(expected, CoTimer::WakeType::TIMEOUT);
 				ExcuteCoroutine(task); // 恢复对应的协程
@@ -448,11 +472,11 @@ int CoroutineScheduler::EventProcess(Coro_IOCPOPData* opdata)
 		if (handle->coroutine && !handle->coroutine.done())
 		{
 			auto task = [handle]() -> void
-			{
-				auto coro = handle->coroutine;
-				if (!coro.done())
-					coro.resume();
-			};
+				{
+					auto coro = handle->coroutine;
+					if (!coro.done())
+						coro.resume();
+				};
 			ExcuteCoroutine(task);
 		}
 	}
@@ -469,20 +493,20 @@ int CoroutineScheduler::EventProcess(Coro_IOCPOPData* opdata)
 			if (coro && !coro.done())
 			{
 				auto task = [coro, handle]() -> void
-				{
-					if (handle)
 					{
-						bool expected = false;
-						if (handle->corodone.compare_exchange_strong(expected, true))
+						if (handle)
 						{
-							if (!coro.done())
+							bool expected = false;
+							if (handle->corodone.compare_exchange_strong(expected, true))
 							{
-								coro.resume();
-								handle->coroutine = nullptr;
+								if (!coro.done())
+								{
+									coro.resume();
+									//handle->coroutine = nullptr;
+								}
 							}
 						}
-					}
-				};
+					};
 				ExcuteCoroutine(task); // 恢复对应的协程
 			}
 			handle->active = false;
@@ -525,6 +549,15 @@ CoroutineScheduler* CoroutineScheduler::Instance()
 {
 	static CoroutineScheduler* m_instance = new CoroutineScheduler();
 	return m_instance;
+}
+
+void CoroutineScheduler::DeleteTaskLater(std::shared_ptr<std::coroutine_handle<>> shared)
+{
+	if (!shared || !(*shared))
+		return;
+
+	_pendingReleaseTasks.enqueue(shared);
+	_CoTaskReleaseCV.notify_one();
 }
 
 std::shared_ptr<CoTimer::Handle> CoroutineScheduler::create_timer(std::chrono::milliseconds interval)

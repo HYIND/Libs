@@ -92,11 +92,6 @@ bool TCPTransportListener::ReleaseListener()
 	return true;
 }
 
-bool TCPTransportListener::ReleaseClients()
-{
-	return true;
-}
-
 void TCPTransportListener::BindAcceptCallBack(std::function<void(std::shared_ptr<TCPTransportConnection>)> callback)
 {
 	this->_callbackAccept = callback;

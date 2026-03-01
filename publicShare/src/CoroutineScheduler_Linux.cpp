@@ -93,10 +93,12 @@ int CoroutineScheduler::Run()
             AddReadShutDownEvent(opdata);
         }
         _ExcuteEventProcessPool.start();
+        std::thread CoTaskReleaseLoop(&CoroutineScheduler::LoopCoTaskRelease, this);
         std::thread IOEventLoop(&CoroutineScheduler::LoopSubmitIOEvent, this);
         std::thread EventLoop(&CoroutineScheduler::Loop, this);
         EventLoop.join();
         IOEventLoop.join();
+        CoTaskReleaseLoop.join();
         _ExcuteEventProcessPool.stop();
         _isrunning = false;
 
@@ -140,6 +142,28 @@ bool CoroutineScheduler::AddReadShutDownEvent(Coro_IOuringOPData *opdata)
     }
 
     return true;
+}
+
+void CoroutineScheduler::LoopCoTaskRelease()
+{
+    do
+    {
+
+        std::unique_lock<std::mutex> lock(_CoTaskReleaseLock);
+        _CoTaskReleaseCV.wait_for(lock, std::chrono::milliseconds(50));
+
+        if (_shouldshutdown || !_isrunning)
+            break;
+
+        constexpr size_t BATCH_SIZE = 100;
+        while (!_pendingReleaseTasks.empty())
+        {
+            std::shared_ptr<std::coroutine_handle<>> handle;
+            for (size_t i = 0; i < BATCH_SIZE && _pendingReleaseTasks.dequeue(handle); ++i)
+                handle.reset();
+        }
+
+    } while (_isrunning && !_shouldshutdown);
 }
 
 void CoroutineScheduler::LoopSubmitIOEvent()
@@ -286,7 +310,7 @@ int CoroutineScheduler::EventProcess(Coro_IOuringOPData *opdata)
                             if (!coro.done())
                             {
                                 coro.resume();
-                                handle->coroutine = nullptr;
+                                //handle->coroutine = nullptr;
                             }
                         }
                     }
@@ -340,7 +364,7 @@ int CoroutineScheduler::EventProcess(Coro_IOuringOPData *opdata)
                             if (!coro.done())
                             {
                                 coro.resume();
-                                handle->coroutine = nullptr;
+                                //handle->coroutine = nullptr;
                             }
                         }
                     }
@@ -392,6 +416,15 @@ CoroutineScheduler *CoroutineScheduler::Instance()
 {
     static CoroutineScheduler *m_instance = new CoroutineScheduler();
     return m_instance;
+}
+
+void CoroutineScheduler::DeleteTaskLater(std::shared_ptr<std::coroutine_handle<>> shared)
+{
+    if (!shared || !(*shared))
+        return;
+
+    _pendingReleaseTasks.enqueue(shared);
+    _CoTaskReleaseCV.notify_one();
 }
 
 std::shared_ptr<CoTimer::Handle> CoroutineScheduler::create_timer(std::chrono::milliseconds interval)

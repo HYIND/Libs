@@ -39,14 +39,10 @@ CustomWebSocketSession::~CustomWebSocketSession()
     Release();
     SAFE_DELETE(BaseClient);
 }
-bool CustomWebSocketSession::Connect(const std::string &IP, uint16_t Port)
-{
-    return Base::Connect(IP, Port);
-}
 
-Task<bool> CustomWebSocketSession::ConnectAsync(const std::string &IP, uint16_t Port)
+Task<bool> CustomWebSocketSession::Connect(std::string IP, uint16_t Port)
 {
-    co_return co_await Base::ConnectAsync(IP, Port);
+    co_return co_await Base::Connect(IP, Port);
 }
 
 bool CustomWebSocketSession::Release()
@@ -166,12 +162,7 @@ void CustomWebSocketSession::OnBindSessionCloseCallBack()
     return;
 }
 
-bool CustomWebSocketSession::TryHandshake(uint32_t timeOutMs)
-{
-    return true;
-}
-
-Task<bool> CustomWebSocketSession::TryHandshakeAsync(uint32_t timeOutMs)
+Task<bool> CustomWebSocketSession::TryHandshake()
 {
     co_return true;
 }

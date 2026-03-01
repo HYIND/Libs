@@ -61,15 +61,26 @@ void Buffer::Release()
     _length = 0;
 }
 
-void *Buffer::Data() const
+void *Buffer::Data()
 {
     return _buf;
 }
 
-char *Buffer::Byte() const
+const void *Buffer::Data() const
+{
+    return _buf;
+}
+
+char *Buffer::Byte()
 {
     return (char *)_buf;
 }
+
+const char *Buffer::Byte() const
+{
+    return (const char *)_buf;
+}
+
 uint64_t Buffer::Length() const
 {
     return _length;

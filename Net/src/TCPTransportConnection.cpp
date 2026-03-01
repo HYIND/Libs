@@ -3,18 +3,8 @@
 
 using namespace std;
 
-BaseSocket NewClientSocket(const std::string& IP, uint16_t port, int protocol, sockaddr_in& sock_addr)
-{
-	memset(&sock_addr, 0, sizeof(sock_addr));
-	sock_addr.sin_family = AF_INET;
-	sock_addr.sin_port = htons(port);
-
-	sock_addr.sin_addr.s_addr = inet_addr(IP.c_str());
-
-	return ::socket(PF_INET, protocol, 0);
-}
-
-TCPTransportConnection::TCPTransportConnection() : BaseTransportConnection(SocketType::TCP, true)
+TCPTransportConnection::TCPTransportConnection()
+	: BaseTransportConnection(SocketType::TCP, true)
 {
 }
 TCPTransportConnection::~TCPTransportConnection()
@@ -22,30 +12,7 @@ TCPTransportConnection::~TCPTransportConnection()
 	Release();
 }
 
-bool TCPTransportConnection::Connect(const std::string& IP, uint16_t Port)
-{
-	if (ValidSocket())
-		Release();
-
-	BaseSocket socket = NewClientSocket(IP, Port, _type == SocketType::UDP ? SOCK_DGRAM : SOCK_STREAM, _addr);
-	if (socket <= 0)
-	{
-		perror("Create fd error");
-		return false;
-	}
-	int result = connect(socket, (struct sockaddr*)&_addr, sizeof(struct sockaddr));
-	if (result < 0)
-	{
-		perror("connect socket error");
-		return false;
-	}
-	this->_socket = socket;
-
-	NetCore->AddNetFd(GetBaseShared());
-	return true;
-}
-
-Task<bool> TCPTransportConnection::ConnectAsync(const std::string& IP, uint16_t Port)
+Task<bool> TCPTransportConnection::Connect(std::string IP, uint16_t Port)
 {
 	if (ValidSocket())
 		Release();
@@ -147,49 +114,49 @@ CriticalSectionLock& TCPTransportConnection::GetSendMtx() { return _SendResMtx; 
 void TCPTransportConnection::OnREAD(BaseSocket socket)
 {
 	auto read = [&](Buffer& buf, int length) -> bool
-	{
-		if (buf.Length() < length)
-			buf.ReSize(length);
-
-		int remaind = length;
-		int trycount = 10;
-		while (trycount > 0)
 		{
-			int result = ::recv(_socket, ((char*)buf.Data()) + (length - remaind), remaind, 0);
-			if ((remaind - result) == 0)
+			if (buf.Length() < length)
+				buf.ReSize(length);
+
+			int remaind = length;
+			int trycount = 10;
+			while (trycount > 0)
 			{
-				return true;
-			}
-			if (result <= 0)
-			{
-				if (result < 0)
+				int result = ::recv(_socket, ((char*)buf.Data()) + (length - remaind), remaind, 0);
+				if ((remaind - result) == 0)
 				{
-					if (errno == EAGAIN || errno == EWOULDBLOCK)
+					return true;
+				}
+				if (result <= 0)
+				{
+					if (result < 0)
 					{
-						trycount--;
-						continue;
-					}
-					else if (errno == EINTR)
-					{
-						trycount--;
-						continue;
+						if (errno == EAGAIN || errno == EWOULDBLOCK)
+						{
+							trycount--;
+							continue;
+						}
+						else if (errno == EINTR)
+						{
+							trycount--;
+							continue;
+						}
+						else
+						{
+							buf.ReSize(buf.Length() - remaind);
+							return false;
+						}
 					}
 					else
 					{
-						buf.ReSize(buf.Length() - remaind);
-						return false;
+						trycount--;
 					}
 				}
-				else
-				{
-					trycount--;
-				}
+				remaind -= result;
 			}
-			remaind -= result;
-		}
-		buf.ReSize(buf.Length() - remaind);
-		return false;
-	};
+			buf.ReSize(buf.Length() - remaind);
+			return false;
+		};
 
 	int recvcount = 10;
 	while (recvcount > 0)
@@ -214,8 +181,14 @@ void TCPTransportConnection::OnREAD(BaseSocket socket)
 		recvcount--;
 	}
 
-	std::lock_guard<SpinLock> lock(_ProcessLock);
+	bool expected = false;
+	while (!_isProcessing.compare_exchange_strong(expected, true));
+	{
+		expected = false;
+		std::this_thread::yield();
+	}
 	ProcessRecvQueue();
+	_isProcessing.store(false);
 }
 void TCPTransportConnection::OnACCEPT(BaseSocket socket) {}
 #endif
@@ -224,11 +197,11 @@ void TCPTransportConnection::OnREAD(BaseSocket socket, Buffer& buf)
 {
 
 	Buffer* copybuf = new Buffer();
-	copybuf->CopyFromBuf(buf);
+	copybuf->QuoteFromBuf(buf);
 
 	_RecvDatas.enqueue(copybuf);
 
-	std::lock_guard<SpinLock> lock(_ProcessLock);
+	std::lock_guard<SpinLock> processlock(_ProcessLock);
 	ProcessRecvQueue();
 }
 
@@ -238,14 +211,7 @@ void TCPTransportConnection::OnBindBufferCallBack()
 {
 	if (_ProcessLock.trylock())
 	{
-		try
-		{
-			ProcessRecvQueue();
-		}
-		catch (const std::exception& e)
-		{
-			std::cerr << e.what() << '\n';
-		}
+		ProcessRecvQueue();
 		_ProcessLock.unlock();
 	}
 }
@@ -264,7 +230,15 @@ void TCPTransportConnection::ProcessRecvQueue()
 
 		int pos = buf->Position();
 		if (_callbackBuffer)
-			_callbackBuffer(this, buf);
+		{
+			try
+			{
+				_callbackBuffer(this, buf);
+			}
+			catch (...)
+			{
+			}
+		}
 
 		// 该流已经被读取完毕
 		if (buf->Length() - buf->Position() == 0)
@@ -284,6 +258,15 @@ void TCPTransportConnection::ProcessRecvQueue()
 
 void TCPTransportConnection::OnRDHUP()
 {
-	if (_callbackRDHUP)
-		_callbackRDHUP(this);
+	auto call = _callbackRDHUP;
+	if (call)
+	{
+		try
+		{
+			call(this);
+		}
+		catch (...)
+		{
+		}
+	}
 }

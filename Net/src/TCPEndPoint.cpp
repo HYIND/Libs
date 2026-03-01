@@ -9,20 +9,9 @@ TCPEndPoint::~TCPEndPoint()
         BaseCon->Release();
 }
 
-bool TCPEndPoint::Connect(const std::string &IP, uint16_t Port)
+Task<bool> TCPEndPoint::Connect(std::string IP, uint16_t Port)
 {
-    if (!BaseCon->Connect(IP, Port))
-        return false;
-
-    BaseCon->BindBufferCallBack(std::bind(&TCPEndPoint::RecvBuffer, this, std::placeholders::_1, std::placeholders::_2));
-    BaseCon->BindRDHUPCallBack(std::bind(&TCPEndPoint::ConnectClose, this, std::placeholders::_1));
-
-    return true;
-}
-
-Task<bool> TCPEndPoint::ConnectAsync(const std::string &IP, uint16_t Port)
-{
-    if (!co_await BaseCon->ConnectAsync(IP, Port))
+    if (!co_await BaseCon->Connect(IP, Port))
         co_return false;
 
     BaseCon->BindBufferCallBack(std::bind(&TCPEndPoint::RecvBuffer, this, std::placeholders::_1, std::placeholders::_2));
@@ -70,4 +59,13 @@ bool TCPEndPoint::ConnectClose(TCPTransportConnection *con)
 std::shared_ptr<TCPTransportConnection> TCPEndPoint::GetBaseCon()
 {
     return BaseCon;
+}
+
+void TCPEndPoint::SetHandShakeTimeOut(uint32_t ms)
+{
+    _handshaketimeOutMs = ms;
+}
+uint32_t TCPEndPoint::GetHandShakeTimeOut()
+{
+    return _handshaketimeOutMs;
 }

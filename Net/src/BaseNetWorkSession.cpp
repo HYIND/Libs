@@ -2,7 +2,6 @@
 
 BaseNetWorkSession::BaseNetWorkSession()
 	: isHandshakeComplete(false)
-	, _handshaketimeout(nullptr)
 {
 }
 
@@ -11,42 +10,18 @@ BaseNetWorkSession::~BaseNetWorkSession()
 	isHandshakeComplete = false;
 	_callbackRecvData = nullptr;
 	_callbackSessionClose = nullptr;
-	if (_handshaketimeout)
-		SAFE_DELETE(_handshaketimeout);
 }
 
-bool BaseNetWorkSession::Connect(const std::string& IP, uint16_t Port)
+Task<bool> BaseNetWorkSession::Connect(std::string IP, uint16_t Port)
 {
 	Release();
 
-	bool result = BaseClient->Connect(IP, Port);
-	if (!result)
-		return false;
-
-	BaseClient->BindMessageCallBack(std::bind(&BaseNetWorkSession::RecvData, this, std::placeholders::_1, std::placeholders::_2));
-	// 尝试握手，超时时间10秒
-	if (!TryHandshake(10 * 1000))
-	{
-		std::cout << "BaseNetWorkSession::Connect TryHandshake Connect Fail! CloseConnection\n";
-		Release();
-		return false;
-	}
-
-	BaseClient->BindCloseCallBack(std::bind(&BaseNetWorkSession::SessionClose, this, std::placeholders::_1));
-	return true;
-}
-
-Task<bool> BaseNetWorkSession::ConnectAsync(const std::string& IP, uint16_t Port)
-{
-	Release();
-
-	bool result = co_await BaseClient->ConnectAsync(IP, Port);
+	bool result = co_await BaseClient->Connect(IP, Port);
 	if (!result)
 		co_return false;
 
 	BaseClient->BindMessageCallBack(std::bind(&BaseNetWorkSession::RecvData, this, std::placeholders::_1, std::placeholders::_2));
-	// 尝试握手，超时时间10秒
-	if (!co_await TryHandshakeAsync(10 * 1000))
+	if (!co_await TryHandshake())
 	{
 		std::cout << "BaseNetWorkSession::ConnectAsync TryHandshake Connect Fail! CloseConnection\n";
 		Release();
@@ -84,6 +59,15 @@ char* BaseNetWorkSession::GetIPAddr()
 uint16_t BaseNetWorkSession::GetPort()
 {
 	return BaseClient->GetBaseCon()->GetPort();
+}
+
+void BaseNetWorkSession::SetHandShakeTimeOut(uint32_t ms)
+{
+	_handshaketimeOutMs = ms;
+}
+uint32_t BaseNetWorkSession::GetHandShakeTimeOut()
+{
+	return _handshaketimeOutMs;
 }
 
 void BaseNetWorkSession::RecvData(TCPEndPoint* client, Buffer* buffer)

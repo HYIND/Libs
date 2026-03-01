@@ -15,14 +15,10 @@ PureWebSocketSession::~PureWebSocketSession()
 	Release();
 	SAFE_DELETE(BaseClient);
 }
-bool PureWebSocketSession::Connect(const std::string& IP, uint16_t Port)
-{
-	return Base::Connect(IP, Port);
-}
 
-Task<bool> PureWebSocketSession::ConnectAsync(const std::string& IP, uint16_t Port)
+Task<bool> PureWebSocketSession::Connect(std::string IP, uint16_t Port)
 {
-	co_return co_await Base::ConnectAsync(IP, Port);
+	co_return co_await Base::Connect(IP, Port);
 }
 
 bool PureWebSocketSession::Release()
@@ -86,12 +82,7 @@ void PureWebSocketSession::OnBindSessionCloseCallBack()
 	return;
 }
 
-bool PureWebSocketSession::TryHandshake(uint32_t timeOutMs)
-{
-	return true;
-}
-
-Task<bool> PureWebSocketSession::TryHandshakeAsync(uint32_t timeOutMs)
+Task<bool> PureWebSocketSession::TryHandshake()
 {
 	co_return true;
 }
