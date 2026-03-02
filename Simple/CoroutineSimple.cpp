@@ -37,6 +37,7 @@ Task<bool> testconnection(std::string IP, int port)
 
 Task<int> testadd(int a, int b)
 {
+	co_await yield();
 	co_return a + b;
 }
 
@@ -92,7 +93,7 @@ void testCoroutine()
 
 int main(int argc, char* argv[])
 {
-	#ifdef _WIN32
+#ifdef _WIN32
 	system("chcp 65001 > nul"); // 切换到 UTF-8
 #endif
 
