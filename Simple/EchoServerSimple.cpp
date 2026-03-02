@@ -140,7 +140,9 @@ private:
 
 int main()
 {
+	#ifdef _WIN32
 	system("chcp 65001 > nul"); // 切换到 UTF-8
+#endif
 
 #ifdef _WIN32
 	if (!SetConsoleCtrlHandler(CtrlHandler, TRUE)) {

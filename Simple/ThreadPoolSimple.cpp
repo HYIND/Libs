@@ -66,7 +66,9 @@ void testFlexThreadPool()
 
 int main(int argc, char* argv[])
 {
+	#ifdef _WIN32
 	system("chcp 65001 > nul"); // 切换到 UTF-8
+#endif
 
 	testThreadPool();
 	testFlexThreadPool();
