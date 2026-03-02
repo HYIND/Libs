@@ -14,9 +14,6 @@ public:
     void Stop();
     bool Running();
 
-public:	//DelayDelete
-    void DeleteTaskLater(std::shared_ptr<std::coroutine_handle<>> shared);
-
 public: // Timer
     std::shared_ptr<CoTimer::Handle> create_timer(std::chrono::milliseconds interval);
     void wake_timer(std::shared_ptr<CoTimer::Handle> weakhandle);
@@ -29,7 +26,6 @@ public: // Connect
 
 private:
     CoroutineScheduler();
-    void LoopCoTaskRelease();
     void LoopSubmitIOEvent();
     void Loop();
     bool GetDoneIOEvents(std::vector<Coro_IOuringOPData *> &opdatas);
@@ -76,5 +72,4 @@ private:
 
     std::mutex _CoTaskReleaseLock;
     std::condition_variable _CoTaskReleaseCV;
-    SafeQueue<std::shared_ptr<std::coroutine_handle<>>> _pendingReleaseTasks;
 };
