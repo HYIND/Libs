@@ -80,7 +80,6 @@ struct TaskPromiseBase
 		struct FinalAwaiter
 		{
 			TaskPromiseBase* promise;
-			std::shared_ptr<std::coroutine_handle<>> delaydeleteptr;
 
 			bool await_ready() noexcept { return false; }
 			std::coroutine_handle<> await_suspend(std::coroutine_handle<> completed_coro) noexcept
@@ -93,14 +92,16 @@ struct TaskPromiseBase
 				if (continuation)
 					return continuation;
 				else
-					return DeleteLater(std::move(delaydeleteptr));
+				{
+					auto p = promise->on_post_final_suspend();
+					return DeleteLater(std::move(p));
+				}
 			}
 
 			void await_resume() noexcept {}
 		};
 
-		std::shared_ptr<std::coroutine_handle<>> shared = on_post_final_suspend();
-		return FinalAwaiter{ this,shared };
+		return FinalAwaiter{ this };
 	}
 
 	void unhandled_exception() noexcept
@@ -111,6 +112,11 @@ struct TaskPromiseBase
 	void set_continuation(std::coroutine_handle<> continuation) noexcept
 	{
 		continuation_ = continuation;
+	}
+
+	void co_await_Delete()
+	{
+		on_post_final_suspend().reset();
 	}
 
 	virtual std::shared_ptr<std::coroutine_handle<>> on_post_final_suspend() = 0;
@@ -222,7 +228,6 @@ struct TaskAwaiter
 
 		auto& promise = coroutine_.promise();
 		promise.set_continuation(awaiting_coroutine);
-
 		return true;
 	}
 
@@ -230,31 +235,53 @@ struct TaskAwaiter
 	template <typename U = T>
 	std::enable_if_t<!std::is_void_v<U>, U> await_resume()
 	{
-		if (!coroutine_ || coroutine_.done())
+		if (!coroutine_)
+			throw std::runtime_error("Invalid coroutine");
+
+		if (coroutine_.done())
 		{
 			if (coroutine_)
 			{
-				return coroutine_.promise().result();
+				T value;
+				try
+				{
+					value = std::move(coroutine_.promise().result());
+				}
+				catch (...)
+				{
+					coroutine_.promise().co_await_Delete();
+					throw;
+				}
+				coroutine_.promise().co_await_Delete();
+				return value;
 			}
-			throw std::runtime_error("Invalid coroutine");
 		}
-		throw std::runtime_error("Coroutine not completed");
+		else
+			throw std::runtime_error("Coroutine not completed");
 	}
 
 	// void 特化的 await_resume
 	template <typename U = T>
 	std::enable_if_t<std::is_void_v<U>, void> await_resume()
 	{
-		if (!coroutine_ || coroutine_.done())
+		if (!coroutine_)
+			throw std::runtime_error("Invalid coroutine");
+
+		if (coroutine_.done())
 		{
-			if (coroutine_)
+			try
 			{
 				coroutine_.promise().result();
-				return;
 			}
-			throw std::runtime_error("Invalid coroutine");
+			catch (...)
+			{
+				coroutine_.promise().co_await_Delete();
+				throw;
+			}
+			coroutine_.promise().co_await_Delete();
 		}
-		throw std::runtime_error("Coroutine not completed");
+		else
+			throw std::runtime_error("Coroutine not completed");
 	}
 };
 
