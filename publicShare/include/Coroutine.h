@@ -330,7 +330,7 @@ public:
 		throw std::runtime_error("Invalid task");
 	}
 
-	bool is_done() const noexcept
+	bool is_done() const
 	{
 		if (!_shared_coroutine)
 			throw std::runtime_error("Invalid Coroutine");

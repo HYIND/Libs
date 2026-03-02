@@ -67,7 +67,7 @@ void BaseTransportConnection::ACCEPT(BaseSocket fdsocket)
 	_OnACCEPTCount.fetch_add(1, std::memory_order_relaxed);
 	try
 	{
-		OnACCEPT(socket);
+		OnACCEPT(fdsocket);
 	}
 	catch (const std::exception& e)
 	{
