@@ -100,7 +100,6 @@ struct TaskPromiseBase
 		};
 
 		std::shared_ptr<std::coroutine_handle<>> shared = on_post_final_suspend();
-
 		return FinalAwaiter{ this,shared };
 	}
 

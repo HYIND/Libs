@@ -701,7 +701,10 @@ uint32_t IOuringCoreProcessImpl::DynamicBufferState::GetDynamicSize()
 }
 
 IOuringCoreProcessImpl::IOuringCoreProcessImpl()
-    : _shouldshutdown(false), _isinitsuccess(false), _isrunning(false), _ExcuteEventProcessPool(4)
+    : _shouldshutdown(false),
+    _isinitsuccess(false),
+    _isrunning(false),
+    _ExcuteEventProcessPool(std::max((uint32_t)4, std::thread::hardware_concurrency()))
 {
     memset(&ring, 0, sizeof(ring));
     int ret = io_uring_queue_init(ENTRIES, &ring, 0);

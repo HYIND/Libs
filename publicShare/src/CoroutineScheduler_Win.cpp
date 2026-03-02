@@ -192,7 +192,7 @@ struct Coro_IOCPOPData
 };
 
 CoroutineScheduler::CoroutineScheduler()
-	: _shouldshutdown(false), _isinitsuccess(false), _isrunning(false), _ExcuteEventProcessPool(4)
+	: _shouldshutdown(false), _isinitsuccess(false), _isrunning(false), _ExcuteEventProcessPool((std::max((uint32_t)4, std::thread::hardware_concurrency())))
 {
 	_asyncConnector = std::make_unique<AsyncConnector>();
 	_isinitsuccess = CreateIOCP(_iocp);

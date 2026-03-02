@@ -13,6 +13,13 @@
 
 #include "BiDirectionalMap.h"
 
+#ifdef max
+#undef max
+#endif
+#ifdef min
+#undef min
+#endif
+
 #define RECVBUFFERMINLEN 1024
 #define RECVBUFFERDEFLEN 1024 * 5
 #define RECVBUFFERMAXLEN 1024 * 1024
@@ -715,12 +722,12 @@ void IOCPCoreProcessImpl::DynamicBufferState::Update(uint32_t newbufferrecvlen)
 	if (newbufferrecvlen >= lastbuffersize)
 	{
 		if (lastbuffersize < RECVBUFFERMAXLEN)
-			lastbuffersize = min((uint32_t)RECVBUFFERMAXLEN, (uint32_t)((float)lastbuffersize * 1.5f));
+			lastbuffersize = std::min((uint32_t)RECVBUFFERMAXLEN, (uint32_t)((float)lastbuffersize * 1.5f));
 	}
 	else
 	{
 		if (lastbuffersize > RECVBUFFERMINLEN)
-			lastbuffersize = max((uint32_t)RECVBUFFERMINLEN, max(newbufferrecvlen, (uint32_t)((float)lastbuffersize * 0.67f)));
+			lastbuffersize = std::max((uint32_t)RECVBUFFERMINLEN, std::max(newbufferrecvlen, (uint32_t)((float)lastbuffersize * 0.67f)));
 	}
 }
 
@@ -730,7 +737,11 @@ uint32_t IOCPCoreProcessImpl::DynamicBufferState::GetDynamicSize()
 }
 
 IOCPCoreProcessImpl::IOCPCoreProcessImpl()
-	: _shouldshutdown(false), _isinitsuccess(false), _isrunning(false), _ExcuteEventProcessPool(4), _iocp(NULL)
+	: _shouldshutdown(false), 
+	_isinitsuccess(false),
+	_isrunning(false),
+	_ExcuteEventProcessPool(std::max((uint32_t)4, std::thread::hardware_concurrency())),
+	_iocp(NULL)
 {
 	_isinitsuccess = CreateIOCP(_iocp);
 }

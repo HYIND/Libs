@@ -12,8 +12,8 @@ ThreadPool::ThreadPool(uint32_t threads_num)
 {
     if (_threadscount <= 0)
         _threadscount = std::thread::hardware_concurrency();
-    if (_threadscount < 0)
-        _threadscount = 1;
+    _threadscount = std::max((uint32_t)1, _threadscount);
+
     _threads.reserve(threads_num);
 
     for (int i = 0; i < _threadscount; ++i)

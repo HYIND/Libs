@@ -21,8 +21,7 @@ FlexThreadPool::FlexThreadPool(uint32_t threads_maxnum, uint32_t worker_expire_s
 {
     if (_threadscount <= 0)
         _threadscount = std::thread::hardware_concurrency();
-    if (_threadscount < 0)
-        _threadscount = 1;
+    _threadscount = std::max((uint32_t)1, _threadscount);
 
     _threads.reserve(_threadscount);
 
