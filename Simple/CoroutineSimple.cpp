@@ -29,6 +29,12 @@ Task<bool> timertask(bool shouwake)
 	}
 }
 
+Task<bool> testconnection(std::string IP, int port)
+{
+	BaseSocket socket = co_await CoConnection(IP, port);
+	co_return socket <= 0;
+}
+
 Task<int> testadd(int a, int b)
 {
 	co_return a + b;
@@ -39,8 +45,8 @@ Task<void> testCoroutineTask()
 	{ // CoTimer
 		std::cout << "CoTimer test start...\n";
 		auto task_shoudown = timertask(true);
-		auto task = timertask(false);
 		bool result_shoudown = co_await task_shoudown;
+		auto task = timertask(false);
 		bool result = co_await task;
 		std::cout << "CoTimer test end...\n";
 	}
@@ -51,7 +57,7 @@ Task<void> testCoroutineTask()
 		std::cout << "CoSleep test end...\n";
 	}
 
-	{
+	{// CoTask
 		std::cout << "CoroTaskAdd test start...\n";
 		std::cout << "CoroTaskAdd input 2+3\n";
 		int addresult = co_await testadd(2, 3);
@@ -66,11 +72,11 @@ Task<void> testCoroutineTask()
 		std::string IP = "192.168.58.130";
 		int port = 28092;
 
-		BaseSocket socket = co_await CoConnection(IP, port);
-		if (socket <= 0)
+		if (co_await testconnection(IP, port))
 			std::cout << "CoroConnection connect failed!\n";
 		else
 			std::cout << "CoroConnection connect seccess!\n";
+
 		std::cout << "CoroConnection test end...\n";
 	}
 }

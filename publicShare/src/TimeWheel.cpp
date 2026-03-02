@@ -168,9 +168,12 @@ void HierarchicalTimeWheel::Start()
 {
 	try
 	{
-		_isrunning = true;
-		HighPrecisionTimer::Initialize();
-		_run_thread = std::thread(&HierarchicalTimeWheel::Run, this);
+		bool expected = false;
+		if (_isrunning.compare_exchange_strong(expected, true))
+		{
+			HighPrecisionTimer::Initialize();
+			_run_thread = std::thread(&HierarchicalTimeWheel::Run, this);
+		}
 	}
 	catch (const std::exception& e)
 	{
@@ -181,9 +184,12 @@ void HierarchicalTimeWheel::Start()
 
 void HierarchicalTimeWheel::Stop()
 {
-	_isrunning = false;
-	if (_run_thread.joinable()) {
-		_run_thread.join();
+	bool expected = true;
+	if (_isrunning.compare_exchange_strong(expected, false))
+	{
+		if (_run_thread.joinable()) {
+			_run_thread.join();
+		}
 	}
 	HighPrecisionTimer::Uninitialize();
 }

@@ -583,13 +583,14 @@ std::shared_ptr<CoTimer::Handle> CoroutineScheduler::create_timer(std::chrono::m
 {
 	auto handle = std::make_shared<CoTimer::Handle>();
 
-	auto timer = TimerTask::CreateOnce("", interval.count(), [handle, this]()->void {
-		Coro_IOCPOPData* opdata = new Coro_IOCPOPData(handle);
-
-		bool success = SubmitTimeOutEvent(opdata);
-
-		if (!success)
-			delete opdata;
+	auto timer = TimerTask::CreateOnce("", interval.count(),
+		[weakHandle = std::weak_ptr<CoTimer::Handle>(handle), this]()->void {
+			if (auto handle = weakHandle.lock()) {
+				Coro_IOCPOPData* opdata = new Coro_IOCPOPData(handle);
+				bool success = SubmitTimeOutEvent(opdata);
+				if (!success)
+					delete opdata;
+			}
 		});
 
 	if (!timer)
