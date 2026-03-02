@@ -82,34 +82,66 @@ private:
 	std::coroutine_handle<promise_type> handle_;
 };
 
-class Delaydelete_Scheduler {
-
-public:
-	static DelayDelete_Task _scheduler_handle;
-	static SpinLock _resume_spin;
-	static std::shared_ptr<std::coroutine_handle<>> _res;
-
-public:
-	static DelayDelete_Task scheduler_co()
+constexpr size_t Delete_Worker_Count = 4;
+class Delaydelete_Scheduler
+{
+	struct Worker
 	{
-		int loop_count = 0;
-		while (true) {
+		SpinLock _resume_spin;
+		std::shared_ptr<std::coroutine_handle<>> _res;
+		DelayDelete_Task _scheduler_handle;
+
+		Worker(size_t index) :_scheduler_handle(Delaydelete_Scheduler::scheduler_co(index)) {}
+	};
+public:
+	static std::vector<Worker*> workers;
+	static std::atomic<bool> isInitStart;
+	static std::atomic<bool> isInitDone;
+	static size_t _current_worker;
+
+public:
+	static DelayDelete_Task scheduler_co(size_t index)
+	{
+		while (true)
+		{
 			co_await std::suspend_always{};
-			_res.reset();
-			_resume_spin.unlock();
+			Delaydelete_Scheduler::workers[index]->_res.reset();
+			Delaydelete_Scheduler::workers[index]->_resume_spin.unlock();
 		}
 	}
+
+	static void Initialize()
+	{
+		for (int i = 0; i < Delete_Worker_Count; i++)
+		{
+			auto worker = new Worker(i);
+			workers.push_back(worker);
+		}
+	}
+
 	static std::coroutine_handle<> RequestDelete(std::shared_ptr<std::coroutine_handle<>> p)
 	{
-		_resume_spin.lock();
-		_res = std::move(p);
-		return _scheduler_handle.get_handle();
+		bool expected = false;
+		if (isInitStart.compare_exchange_strong(expected, true))
+		{
+			Initialize();
+			isInitDone.store(true);
+		}
+
+		while (!isInitDone.load()) {}
+
+		size_t idx = _current_worker++ % Delete_Worker_Count;
+
+		workers[idx]->_resume_spin.lock();
+		workers[idx]->_res = std::move(p);
+		return workers[idx]->_scheduler_handle.get_handle();
 	}
 };
 
-DelayDelete_Task Delaydelete_Scheduler::_scheduler_handle = Delaydelete_Scheduler::scheduler_co();
-SpinLock Delaydelete_Scheduler::_resume_spin = SpinLock();
-std::shared_ptr<std::coroutine_handle<>> Delaydelete_Scheduler::_res = std::shared_ptr<std::coroutine_handle<>>(nullptr);
+std::vector<Delaydelete_Scheduler::Worker*> Delaydelete_Scheduler::workers = {};
+std::atomic<bool> Delaydelete_Scheduler::isInitStart{ false };
+std::atomic<bool> Delaydelete_Scheduler::isInitDone{ false };
+size_t Delaydelete_Scheduler::_current_worker = 0;
 
 std::coroutine_handle<> DeleteLater(std::shared_ptr<std::coroutine_handle<>> p)
 {
