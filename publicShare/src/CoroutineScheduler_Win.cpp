@@ -199,8 +199,9 @@ CoroutineScheduler::CoroutineScheduler()
 
 	if (!Running() && _isinitsuccess)
 	{
-		std::thread CoreThread(&CoroutineScheduler::Run, this);
-		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		std::latch started(1);
+		std::thread CoreThread(&CoroutineScheduler::Run, this, &started);
+		started.wait();
 		CoreThread.detach();
 	}
 }
@@ -210,20 +211,26 @@ CoroutineScheduler::~CoroutineScheduler()
 	Stop();
 }
 
-int CoroutineScheduler::Run()
+int CoroutineScheduler::Run(std::latch* started)
 {
 	try
 	{
 		_isrunning = true;
 		_shouldshutdown = false;
 		if (!_isinitsuccess)
-		{
 			_isinitsuccess = CreateIOCP(_iocp);
+
+		if (!_isinitsuccess)
+		{
+			_iocp = 0;
+			if (started) started->count_down();
+			return -1;
 		}
 
 		_ExcuteEventProcessPool.start();
 		std::thread IOEventLoop(&CoroutineScheduler::LoopSubmitIOEvent, this);
 		std::thread EventLoop(&CoroutineScheduler::Loop, this);
+		if (started) started->count_down();
 		EventLoop.join();
 		IOEventLoop.join();
 		_ExcuteEventProcessPool.stop();
@@ -242,6 +249,7 @@ int CoroutineScheduler::Run()
 	}
 	catch (const std::exception& e)
 	{
+		if (started) started->count_down();
 		std::cerr << e.what() << '\n';
 		return -1;
 	}
@@ -273,9 +281,8 @@ void CoroutineScheduler::LoopSubmitIOEvent()
 
 	do
 	{
-
 		std::unique_lock<std::mutex> lock(_IOEventLock);
-		_IOEventCV.wait_for(lock, std::chrono::milliseconds(50));
+		_IOEventCV.wait_for(lock, std::chrono::milliseconds(20));
 
 		if (_shouldshutdown || !_isrunning)
 			break;
@@ -296,7 +303,6 @@ void CoroutineScheduler::LoopSubmitIOEvent()
 				opdatas.clear();
 			}
 		}
-
 	} while (_isrunning && !_shouldshutdown);
 }
 
@@ -309,7 +315,7 @@ void CoroutineScheduler::Loop()
 		std::vector<Coro_IOCPOPData*> opdatas;
 		if (!GetDoneIOEvents(opdatas))
 		{
-			std::this_thread::sleep_for(std::chrono::milliseconds(500));
+			std::this_thread::sleep_for(std::chrono::milliseconds(20));
 			break;
 		}
 

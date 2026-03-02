@@ -2,6 +2,7 @@
 
 #include "Coroutine.h"
 #include "ThreadPool.h"
+#include <latch>
 
 struct Coro_IOCPOPData;
 
@@ -43,7 +44,7 @@ class CoroutineScheduler
 {
 public:
 	static CoroutineScheduler* Instance();
-	int Run();
+	int Run(std::latch* started = nullptr);
 	void Stop();
 	bool Running();
 	
