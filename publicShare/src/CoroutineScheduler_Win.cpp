@@ -3,6 +3,15 @@
 #include "CoroutineScheduler_Win.h"
 #include "Timer.h"
 #include "SpinLock.h"
+#include <algorithm>
+
+#ifdef max
+#undef max
+#endif
+
+#ifdef min
+#undef min
+#endif
 
 #define SAFE_DELETE(x) \
     if (x)             \
@@ -32,12 +41,14 @@ void AsyncConnector::Connect(SOCKET s, const std::string& ip, const int port, vo
 	::connect(s, (sockaddr*)&remoteaddr, sizeof(remoteaddr));
 }
 
-bool AsyncConnector::GetDoneEvents(std::vector<ConnectEvent>& events)
+bool AsyncConnector::GetDoneEvents(std::vector<ConnectEvent>& events, uint32_t maxcount)
 {
 	bool result = false;
 	ConnectEvent event;
-	while (GetEvent(event)) {
+	uint32_t reamin = maxcount;
+	while (reamin > 0 && GetEvent(event)) {
 		events.emplace_back(std::move(event));
+		reamin--;
 		result = true;
 	}
 	return result;
@@ -50,19 +61,24 @@ bool AsyncConnector::GetEvent(ConnectEvent& event)
 
 	std::vector<WSAEVENT> events;
 
+	//WSAWaitForMultipleEvents一次最多可等待64个事件
+	constexpr uint32_t MAX_EVENTS = 64;
+
 	contexts.EnsureCall(
 		[&events](std::vector<AsyncConnector::SocketContext>& array)->void {
 			for (auto& ctx : array)
-				events.push_back(ctx.hEvent);
+			{
+				if (events.size() < MAX_EVENTS)
+					events.push_back(ctx.hEvent);
+			}
 		}
 	);
 
-	// 等待事件
 	DWORD dwIndex = WSAWaitForMultipleEvents(
 		(DWORD)events.size(),
 		events.data(),
 		FALSE,  // 任一事件触发
-		0,		// 不等待立即返回
+		0,      // 不等待立即返回
 		FALSE
 	);
 
@@ -408,8 +424,11 @@ bool CoroutineScheduler::GetDoneIOEvents(std::vector<Coro_IOCPOPData*>& opdatas)
 				if (event.error != 0)
 				{
 					opdata->res = 0;
-					if (opdata->connection_handle)
+					if (opdata->connection_handle && opdata->connection_handle->socket != 0)
+					{
+						CoCloseSocket(opdata->connection_handle->socket);
 						opdata->connection_handle->socket = 0;
+					}
 				}
 				else
 				{

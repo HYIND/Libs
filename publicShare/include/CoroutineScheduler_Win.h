@@ -21,7 +21,7 @@ public:
 	~AsyncConnector();
 
 	void Connect(SOCKET s, const std::string& ip, const int port, void* userdata);
-	bool GetDoneEvents(std::vector<ConnectEvent>& events);
+	bool GetDoneEvents(std::vector<ConnectEvent>& events, uint32_t maxcount = 500);
 	void Cleanup();
 
 private:
