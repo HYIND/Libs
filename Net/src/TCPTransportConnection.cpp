@@ -60,7 +60,7 @@ bool TCPTransportConnection::Release()
 	}
 
 	{
-		std::lock_guard<SpinLock> processlock(_ProcessLock);
+		std::lock_guard<CoroCriticalSectionLock> processlock(_ProcessLock);
 		_callbackBuffer = nullptr;
 		Buffer* buf = nullptr;
 		while (_RecvDatas.dequeue(buf))
@@ -68,7 +68,7 @@ bool TCPTransportConnection::Release()
 	}
 	{
 
-		std::lock_guard<CriticalSectionLock> sendlock(_SendResMtx);
+		std::lock_guard<CoroCriticalSectionLock> sendlock(_SendResMtx);
 		Buffer* buf = nullptr;
 		while (_SendDatas.dequeue(buf))
 			SAFE_DELETE(buf);
@@ -107,8 +107,8 @@ void TCPTransportConnection::BindRDHUPCallBack(function<Task<void>(TCPTransportC
 	_callbackRDHUP = callback;
 	OnBindRDHUPCallBack();
 }
-SafeQueue<Buffer*>& TCPTransportConnection::GetSendData() { return _SendDatas; }
-CriticalSectionLock& TCPTransportConnection::GetSendMtx() { return _SendResMtx; }
+SafeQueue<Buffer*, CoroCriticalSectionLock>& TCPTransportConnection::GetSendData() { return _SendDatas; }
+CoroCriticalSectionLock& TCPTransportConnection::GetSendMtx() { return _SendResMtx; }
 
 #ifdef __linux__
 Task<void> TCPTransportConnection::OnREAD(BaseSocket socket)
@@ -181,7 +181,7 @@ Task<void> TCPTransportConnection::OnREAD(BaseSocket socket)
 		recvcount--;
 	}
 
-	std::lock_guard<SpinLock> processlock(_ProcessLock);
+	std::lock_guard<CoroCriticalSectionLock> processlock(_ProcessLock);
 	co_await ProcessRecvQueue();
 }
 Task<void> TCPTransportConnection::OnACCEPT(BaseSocket socket) {}
@@ -195,7 +195,7 @@ Task<void> TCPTransportConnection::OnREAD(BaseSocket socket, Buffer& buf)
 
 	_RecvDatas.enqueue(copybuf);
 
-	std::lock_guard<SpinLock> processlock(_ProcessLock);
+	std::lock_guard<CoroCriticalSectionLock> processlock(_ProcessLock);
 	co_await ProcessRecvQueue();
 	co_return;
 }

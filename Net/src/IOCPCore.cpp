@@ -4,7 +4,6 @@
 #include "Core/BaseSocket.h"
 
 #include "ResourcePool.h"
-#include "ThreadPool.h"
 
 #include "Session/SessionListener.h"
 #include "Session/BaseNetWorkSession.h"
@@ -160,8 +159,8 @@ private:
 		std::weak_ptr<NetCore_IOCPData> _weakdata;
 		IOCP_OPType _type;
 
-		CriticalSectionLock _lock;
-		SafeDeQue<IOCPOPData*> _queue;
+		CoroCriticalSectionLock _lock;
+		SafeDeQue<IOCPOPData*, CoroCriticalSectionLock> _queue;
 		submitstate _state;
 	};
 
@@ -185,8 +184,8 @@ private:
 	private:
 		IOCPCoreProcessImpl* _core;
 		std::weak_ptr<NetCore_IOCPData> _weakdata;
-		CriticalSectionLock _lock;
-		SafeQueue<std::shared_ptr<ExcuteEvent>> _queue;
+		CoroCriticalSectionLock _lock;
+		SafeQueue<std::shared_ptr<ExcuteEvent>, CoroCriticalSectionLock> _queue;
 		excutestate _state;
 		bool _active;
 	};
@@ -242,20 +241,19 @@ private:
 
 	HANDLE _iocp;
 
-	SafeMap<BaseTransportConnection*, std::shared_ptr<NetCore_IOCPData>> _IOCPData;
-	SafeArray<DeleteLaterImpl*> _pendingDeletions;
-	ThreadPool _ExcuteEventProcessPool;
+	SafeMap<BaseTransportConnection*, std::shared_ptr<NetCore_IOCPData>, CoroCriticalSectionLock> _IOCPData;
+	SafeArray<DeleteLaterImpl*, CoroCriticalSectionLock> _pendingDeletions;
 
-	CriticalSectionLock _IOEventLock;
+	CoroCriticalSectionLock _IOEventLock;
 	ConditionVariable _IOEventCV;
 
-	CriticalSectionLock _ExcuteLock;
+	CoroCriticalSectionLock _ExcuteLock;
 	ConditionVariable _ExcuteCV;
 
-	CriticalSectionLock _doPostIOEventLock;
+	CoroCriticalSectionLock _doPostIOEventLock;
 
-	CriticalSectionLock _associateSocketLock;
-	SafeMap<BaseSocket, BaseTransportConnection*> _associateSocketMap;
+	CoroCriticalSectionLock _associateSocketLock;
+	SafeMap<BaseSocket, BaseTransportConnection*, CoroCriticalSectionLock> _associateSocketMap;
 };
 
 enum class IOCPCoreProcessImpl::SequentialEventExecutor::excutestate
@@ -417,7 +415,7 @@ void IOCPCoreProcessImpl::SequentialIOSubmitter::Release()
 {
 	_state = submitstate::none;
 
-	std::lock_guard<CriticalSectionLock> lock(_lock);
+	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
 	while (!_queue.empty())
 	{
 		IOCPOPData* opdata = nullptr;
@@ -437,7 +435,7 @@ void IOCPCoreProcessImpl::SequentialIOSubmitter::SubmitOPdata(IOCPOPData* opdata
 	if (_state == submitstate::none)
 		return;
 
-	std::lock_guard<CriticalSectionLock> lock(_lock);
+	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
 	if (_state == submitstate::none || !_weakdata.lock())
 		return;
 
@@ -457,7 +455,7 @@ void IOCPCoreProcessImpl::SequentialIOSubmitter::NotifyDone(IOCPOPData* opdata)
 	if (opdata->OP_Type != _type)
 		return;
 
-	std::lock_guard<CriticalSectionLock> lock(_lock);
+	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
 	if (_state == submitstate::none)
 		return;
 
@@ -483,7 +481,7 @@ void IOCPCoreProcessImpl::SequentialIOSubmitter::NotifyDone(IOCPOPData* opdata)
 
 void IOCPCoreProcessImpl::SequentialIOSubmitter::NotifyRetry(IOCPOPData* opdata)
 {
-	std::lock_guard<CriticalSectionLock> lock(_lock);
+	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
 
 	if (auto iodata = _weakdata.lock())
 	{
@@ -535,7 +533,7 @@ void IOCPCoreProcessImpl::SequentialIOSubmitter::GetPostIOEvent(std::vector<IOCP
 	if (_state != submitstate::idle)
 		return;
 
-	std::lock_guard<CriticalSectionLock> lock(_lock);
+	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
 	if (_state != submitstate::idle)
 		return;
 
@@ -622,7 +620,7 @@ IOCPCoreProcessImpl::SequentialEventExecutor::~SequentialEventExecutor()
 void IOCPCoreProcessImpl::SequentialEventExecutor::Release()
 {
 	_state = excutestate::none;
-	std::lock_guard<CriticalSectionLock> lock(_lock);
+	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
 	_queue.clear();
 }
 
@@ -633,7 +631,7 @@ void IOCPCoreProcessImpl::SequentialEventExecutor::SubmitExcuteEvent(std::shared
 	if (_state == excutestate::none)
 		return;
 
-	std::lock_guard<CriticalSectionLock> lock(_lock);
+	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
 	if (_state == excutestate::none || !_weakdata.lock())
 		return;
 
@@ -650,7 +648,7 @@ void IOCPCoreProcessImpl::SequentialEventExecutor::NotifyDone()
 	if (_state == excutestate::none)
 		return;
 
-	std::lock_guard<CriticalSectionLock> lock(_lock);
+	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
 	if (_state == excutestate::none)
 		return;
 
@@ -664,7 +662,7 @@ void IOCPCoreProcessImpl::SequentialEventExecutor::GetPostExcuteEvent(std::vecto
 	if (_state != excutestate::idle)
 		return;
 
-	std::lock_guard<CriticalSectionLock> lock(_lock);
+	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
 	if (_state != excutestate::idle)
 		return;
 
@@ -740,7 +738,6 @@ IOCPCoreProcessImpl::IOCPCoreProcessImpl()
 	: _shouldshutdown(false), 
 	_isinitsuccess(false),
 	_isrunning(false),
-	_ExcuteEventProcessPool(std::max((uint32_t)4, std::thread::hardware_concurrency())),
 	_iocp(NULL)
 {
 	_isinitsuccess = CreateIOCP(_iocp);
@@ -762,14 +759,12 @@ int IOCPCoreProcessImpl::Run()
 			_isinitsuccess = CreateIOCP(_iocp);
 		}
 
-		_ExcuteEventProcessPool.start();
 		std::thread IOEventLoop(&IOCPCoreProcessImpl::LoopSubmitIOEvent, this);
 		std::thread ExcuteEventLoop(&IOCPCoreProcessImpl::LoopSubmitExcuteEvent, this);
 		std::thread EventLoop(&IOCPCoreProcessImpl::Loop, this);
 		EventLoop.join();
 		IOEventLoop.join();
 		ExcuteEventLoop.join();
-		_ExcuteEventProcessPool.stop();
 
 		if (_iocp && _iocp != INVALID_HANDLE_VALUE)
 		{
@@ -882,7 +877,7 @@ bool IOCPCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> BaseC
 		return true; // 写锁正在被其他线程占用
 
 	int fd = Con->GetSocket();
-	SafeQueue<Buffer*>& SendDatas = Con->GetSendData();
+	auto& SendDatas = Con->GetSendData();
 
 	std::shared_ptr<NetCore_IOCPData> iodata;
 	if (!_IOCPData.Find(Con.get(), iodata))
@@ -1301,7 +1296,7 @@ int IOCPCoreProcessImpl::EventProcess(IOCPOPData* opdata, std::vector<IOCPOPData
 
 void IOCPCoreProcessImpl::DoPostIOEvents(std::vector<IOCPOPData*> opdatas)
 {
-	std::lock_guard<CriticalSectionLock> lock(_doPostIOEventLock);
+	std::lock_guard<CoroCriticalSectionLock> lock(_doPostIOEventLock);
 
 	for (auto opdata : opdatas)
 	{

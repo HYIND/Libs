@@ -71,11 +71,11 @@ private:
 
 private:
 	std::atomic<int> seq;
-	SafeQueue<CustomPackage*> _RecvPaks;
-	SafeQueue<CustomPackage*> _SendPaks;
+	SafeQueue<CustomPackage*, CoroCriticalSectionLock> _RecvPaks;
+	SafeQueue<CustomPackage*, CoroCriticalSectionLock> _SendPaks;
 
 	std::function<Task<void>(BaseNetWorkSession*, Buffer* recv, Buffer* response)> _callbackRecvRequest;
-	SafeUnorderedMap<int, std::shared_ptr<AwaitTask>> _AwaitMap; // seq->AwaitTask
+	SafeUnorderedMap<int, std::shared_ptr<AwaitTask>, CoroCriticalSectionLock> _AwaitMap; // seq->AwaitTask
 
 	Buffer cacheBuffer;
 	CustomPackage* cachePak; // 握手/数据包解析缓存

@@ -52,8 +52,8 @@ private:
 	SpinLock _ProcessLock;
 
 private:
-	SafeQueue<WebSocketPackage*> _RecvPaks;
-	SafeQueue<WebSocketPackage*> _SendPaks;
+	SafeQueue<WebSocketPackage*, CoroCriticalSectionLock> _RecvPaks;
+	SafeQueue<WebSocketPackage*, CoroCriticalSectionLock> _SendPaks;
 
 	Buffer cacheBuffer;         // 握手消息/数据帧解析缓冲
 	WebSocketPackage* cachePak; // 多帧数据组成的完整帧缓冲

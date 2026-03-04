@@ -2,7 +2,6 @@
 #include "Core/NetCoredef.h"
 #include "Core/IOuringCore.h"
 #include "ResourcePool.h"
-#include "ThreadPool.h"
 
 #include "Session/SessionListener.h"
 #include "Session/BaseNetWorkSession.h"
@@ -125,8 +124,8 @@ private:
         std::weak_ptr<NetCore_IOuringData> _weakdata;
         IOUring_OPType _type;
 
-        CriticalSectionLock _lock;
-        SafeDeQue<IOuringOPData *> _queue;
+        CoroCriticalSectionLock _lock;
+        SafeDeQue<IOuringOPData *, CoroCriticalSectionLock> _queue;
         submitstate _state;
     };
 
@@ -150,8 +149,8 @@ private:
     private:
         IOuringCoreProcessImpl *_core;
         std::weak_ptr<NetCore_IOuringData> _weakdata;
-        CriticalSectionLock _lock;
-        SafeQueue<std::shared_ptr<ExcuteEvent>> _queue;
+        CoroCriticalSectionLock _lock;
+        SafeQueue<std::shared_ptr<ExcuteEvent>, CoroCriticalSectionLock> _queue;
         excutestate _state;
         bool _active;
     };
@@ -204,17 +203,16 @@ private:
     bool _isinitsuccess;
     io_uring ring;
 
-    SafeMap<BaseTransportConnection *, std::shared_ptr<NetCore_IOuringData>> _IOUringData;
-    SafeArray<DeleteLaterImpl *> _pendingDeletions;
-    ThreadPool _ExcuteEventProcessPool;
+    SafeMap<BaseTransportConnection *, std::shared_ptr<NetCore_IOuringData>, CoroCriticalSectionLock> _IOUringData;
+    SafeArray<DeleteLaterImpl *, CoroCriticalSectionLock> _pendingDeletions;
 
-    CriticalSectionLock _IOEventLock;
+    CoroCriticalSectionLock _IOEventLock;
     ConditionVariable _IOEventCV;
 
-    CriticalSectionLock _ExcuteLock;
+    CoroCriticalSectionLock _ExcuteLock;
     ConditionVariable _ExcuteCV;
 
-    CriticalSectionLock _doPostIOEventLock;
+    CoroCriticalSectionLock _doPostIOEventLock;
 };
 
 static void setnonblocking(BaseSocket fd)
@@ -381,7 +379,7 @@ void IOuringCoreProcessImpl::SequentialIOSubmitter::Release()
 {
     _state = submitstate::none;
 
-    std::lock_guard<CriticalSectionLock> lock(_lock);
+    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
     while (!_queue.empty())
     {
         IOuringOPData *opdata = nullptr;
@@ -401,7 +399,7 @@ void IOuringCoreProcessImpl::SequentialIOSubmitter::SubmitOPdata(IOuringOPData *
     if (_state == submitstate::none)
         return;
 
-    std::lock_guard<CriticalSectionLock> lock(_lock);
+    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
     if (_state == submitstate::none || !_weakdata.lock())
         return;
 
@@ -421,7 +419,7 @@ void IOuringCoreProcessImpl::SequentialIOSubmitter::NotifyDone(IOuringOPData *op
     if (opdata->OP_Type != _type)
         return;
 
-    std::lock_guard<CriticalSectionLock> lock(_lock);
+    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
     if (_state == submitstate::none)
         return;
 
@@ -447,7 +445,7 @@ void IOuringCoreProcessImpl::SequentialIOSubmitter::NotifyDone(IOuringOPData *op
 
 void IOuringCoreProcessImpl::SequentialIOSubmitter::NotifyRetry(IOuringOPData *opdata)
 {
-    std::lock_guard<CriticalSectionLock> lock(_lock);
+    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
 
     if (auto iodata = _weakdata.lock())
     {
@@ -499,7 +497,7 @@ void IOuringCoreProcessImpl::SequentialIOSubmitter::GetPostIOEvent(std::vector<I
     if (_state != submitstate::idle)
         return;
 
-    std::lock_guard<CriticalSectionLock> lock(_lock);
+    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
     if (_state != submitstate::idle)
         return;
 
@@ -586,7 +584,7 @@ IOuringCoreProcessImpl::SequentialEventExecutor::~SequentialEventExecutor()
 void IOuringCoreProcessImpl::SequentialEventExecutor::Release()
 {
     _state = excutestate::none;
-    std::lock_guard<CriticalSectionLock> lock(_lock);
+    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
     _queue.clear();
 }
 
@@ -597,7 +595,7 @@ void IOuringCoreProcessImpl::SequentialEventExecutor::SubmitExcuteEvent(std::sha
     if (_state == excutestate::none)
         return;
 
-    std::lock_guard<CriticalSectionLock> lock(_lock);
+    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
     if (_state == excutestate::none || !_weakdata.lock())
         return;
 
@@ -614,7 +612,7 @@ void IOuringCoreProcessImpl::SequentialEventExecutor::NotifyDone()
     if (_state == excutestate::none)
         return;
 
-    std::lock_guard<CriticalSectionLock> lock(_lock);
+    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
     if (_state == excutestate::none)
         return;
 
@@ -628,7 +626,7 @@ void IOuringCoreProcessImpl::SequentialEventExecutor::GetPostExcuteEvent(std::ve
     if (_state != excutestate::idle)
         return;
 
-    std::lock_guard<CriticalSectionLock> lock(_lock);
+    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
     if (_state != excutestate::idle)
         return;
 
@@ -703,8 +701,7 @@ uint32_t IOuringCoreProcessImpl::DynamicBufferState::GetDynamicSize()
 IOuringCoreProcessImpl::IOuringCoreProcessImpl()
     : _shouldshutdown(false),
       _isinitsuccess(false),
-      _isrunning(false),
-      _ExcuteEventProcessPool(std::max((uint32_t)4, std::thread::hardware_concurrency()))
+      _isrunning(false)
 {
     memset(&ring, 0, sizeof(ring));
     int ret = io_uring_queue_init(ENTRIES, &ring, 0);
@@ -754,14 +751,12 @@ int IOuringCoreProcessImpl::Run()
             opdata->fd = shutdown_eventfd;
             AddReadShutDownEvent(opdata);
         }
-        _ExcuteEventProcessPool.start();
         std::thread IOEventLoop(&IOuringCoreProcessImpl::LoopSubmitIOEvent, this);
         std::thread ExcuteEventLoop(&IOuringCoreProcessImpl::LoopSubmitExcuteEvent, this);
         std::thread EventLoop(&IOuringCoreProcessImpl::Loop, this);
         EventLoop.join();
         IOEventLoop.join();
         ExcuteEventLoop.join();
-        _ExcuteEventProcessPool.stop();
         _isrunning = false;
 
         // ThreadEnd();
@@ -862,7 +857,7 @@ bool IOuringCoreProcessImpl::SendRes(std::shared_ptr<BaseTransportConnection> Ba
         return true; // 写锁正在被其他线程占用
 
     BaseSocket fd = Con->GetSocket();
-    SafeQueue<Buffer *> &SendDatas = Con->GetSendData();
+    auto &SendDatas = Con->GetSendData();
 
     std::shared_ptr<NetCore_IOuringData> iodata;
     if (!_IOUringData.Find(Con.get(), iodata))
@@ -1245,7 +1240,7 @@ int IOuringCoreProcessImpl::EventProcess(IOuringOPData *opdata, std::vector<IOur
 
 void IOuringCoreProcessImpl::DoPostIOEvents(std::vector<IOuringOPData *> opdatas)
 {
-    std::lock_guard<CriticalSectionLock> lock(_doPostIOEventLock);
+    std::lock_guard<CoroCriticalSectionLock> lock(_doPostIOEventLock);
 
     for (auto opdata : opdatas)
     {

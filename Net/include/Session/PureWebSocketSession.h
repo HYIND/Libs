@@ -40,5 +40,5 @@ private:
 	SpinLock _ProcessLock;
 
 private:
-	SafeQueue<PureWebSocketSessionPakage*> _RecvPaks;
+	SafeQueue<PureWebSocketSessionPakage*, CoroCriticalSectionLock> _RecvPaks;
 };

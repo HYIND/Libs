@@ -54,7 +54,7 @@ private:
 	SpinLock _ProcessLock;
 
 private:
-	SafeQueue<CustomWebSocketSessionPakage*> _RecvPaks;
+	SafeQueue<CustomWebSocketSessionPakage*, CoroCriticalSectionLock> _RecvPaks;
 
 	std::atomic<int> seq;
 	SafeMap<int, AwaitTask*> _AwaitMap; // seq->AwaitTask

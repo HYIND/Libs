@@ -23,9 +23,9 @@ public:
 	void BindBufferCallBack(std::function<Task<void>(TCPTransportConnection*, Buffer*)> callback);
 	void BindRDHUPCallBack(std::function<Task<void>(TCPTransportConnection*)> callback);
 
-	SafeQueue<Buffer*>& GetRecvData();
-	SafeQueue<Buffer*>& GetSendData();
-	CriticalSectionLock& GetSendMtx();
+	SafeQueue<Buffer*, CoroCriticalSectionLock>& GetRecvData();
+	SafeQueue<Buffer*, CoroCriticalSectionLock>& GetSendData();
+	CoroCriticalSectionLock& GetSendMtx();
 
 protected:
 #ifdef __linux__
@@ -44,14 +44,14 @@ private:
 	Task<void> ProcessRecvQueue();
 
 private:
-	SafeQueue<Buffer*> _RecvDatas;
-	SafeQueue<Buffer*> _SendDatas;
+	SafeQueue<Buffer*, CoroCriticalSectionLock> _RecvDatas;
+	SafeQueue<Buffer*, CoroCriticalSectionLock> _SendDatas;
 
 private:
 	std::function<Task<void>(TCPTransportConnection*, Buffer*)> _callbackBuffer;
 	std::function<Task<void>(TCPTransportConnection*)> _callbackRDHUP;
-	CriticalSectionLock _SendResMtx;
-	SpinLock _ProcessLock;
+	CoroCriticalSectionLock _SendResMtx;
+	CoroCriticalSectionLock _ProcessLock;
 };
 
 
