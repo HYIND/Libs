@@ -100,6 +100,7 @@ void TCPTransportListener::BindAcceptCallBack(std::function<Task<void>(std::shar
 #ifdef __linux__
 Task<void> TCPTransportListener::OnREAD(BaseSocket socket)
 {
+	co_await OnACCEPT(socket);
 }
 
 Task<void> TCPTransportListener::OnACCEPT(BaseSocket socket)
@@ -110,8 +111,8 @@ Task<void> TCPTransportListener::OnACCEPT(BaseSocket socket)
 		{
 			sockaddr_in addr;
 			socklen_t length = sizeof(sockaddr_in);
-			BaseSocket clientSocket = accept(this->_socket, (struct sockaddr*)&addr, &length);
-			if (clientSocket != Invaild_Socket)
+			BaseSocket clientSocket = ::accept(this->_socket, (struct sockaddr*)&addr, &length);
+			if (clientSocket > Invaild_Socket)
 			{
 				std::shared_ptr<TCPTransportConnection> client = std::make_shared<TCPTransportConnection>();
 				client->Apply(clientSocket, addr, this->_type);

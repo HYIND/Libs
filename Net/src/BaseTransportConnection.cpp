@@ -55,7 +55,7 @@ Task<void> BaseTransportConnection::READ(BaseSocket socket)
 	_OnREADCount.fetch_add(1, std::memory_order_relaxed);
 	try
 	{
-		OnREAD(socket);
+		co_await OnREAD(socket);
 	}
 	catch (const std::exception& e)
 	{
@@ -67,7 +67,7 @@ Task<void> BaseTransportConnection::ACCEPT(BaseSocket fdsocket)
 	_OnACCEPTCount.fetch_add(1, std::memory_order_relaxed);
 	try
 	{
-		OnACCEPT(fdsocket);
+		co_await OnACCEPT(fdsocket);
 	}
 	catch (const std::exception& e)
 	{

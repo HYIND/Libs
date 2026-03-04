@@ -79,7 +79,7 @@ private:
 	int _epoll = epoll_create(1000);
 	epoll_event _events[1500];
 	SafeMap<BaseTransportConnection *, std::shared_ptr<NetCore_EpollData>> _EpollData;
-	BiDirectionalMap<BaseSocket, EpollDataWeakWrapper *> _WeakData;
+	SafeBiDirectionalMap<BaseSocket, EpollDataWeakWrapper *> _WeakData;
 	SafeArray<DeleteLaterImpl *> _pendingDeletions;
 };
 
@@ -264,7 +264,7 @@ int EpollCoreProcessImpl::EventProcess(std::shared_ptr<NetCore_EpollData> &data,
 	if (events & EPOLLRDHUP)
 	{
 		DelNetFd(Con.get());
-		Con->RDHUP();
+		Con->RDHUP().sync_wait();
 		return 0;
 	}
 	else
@@ -273,7 +273,7 @@ int EpollCoreProcessImpl::EventProcess(std::shared_ptr<NetCore_EpollData> &data,
 		{
 			try
 			{
-				Con->READ(fd);
+				Con->READ(fd).sync_wait();
 			}
 			catch (const std::exception &e)
 			{
