@@ -1338,14 +1338,14 @@ void IOCPCoreProcessImpl::DoPostIOEvents(std::vector<IOCPOPData*> opdatas)
 void IOCPCoreProcessImpl::DoPostExcuteEvents(std::vector<std::shared_ptr<SequentialEventExecutor::ExcuteEvent>>& events)
 {
 	auto task =
-		[this](std::shared_ptr<SequentialEventExecutor::ExcuteEvent> event) -> void
+		[this](std::shared_ptr<SequentialEventExecutor::ExcuteEvent> event) -> Task<void>
 		{
 			if (!event)
-				return;
+				co_return;
 
 			auto iodata = event->weakdata.lock();
 			if (!iodata)
-				return;
+				co_return;
 
 			try
 			{
@@ -1357,15 +1357,15 @@ void IOCPCoreProcessImpl::DoPostExcuteEvents(std::vector<std::shared_ptr<Sequent
 					if (event->type == SequentialEventExecutor::ExcuteEvent::EventType::READ_DATA)
 					{
 						Buffer& buf = *(event->data);
-						connection->READ(connection->GetSocket(),
+						co_await connection->READ(connection->GetSocket(),
 							buf);
 					}
 					else if (event->type == SequentialEventExecutor::ExcuteEvent::EventType::ACCEPT_CONNECTION)
-						connection->ACCEPT(connection->GetSocket(),
+						co_await connection->ACCEPT(connection->GetSocket(),
 							event->accept_info.client_fd, event->accept_info.client_addr);
 					else if (event->type == SequentialEventExecutor::ExcuteEvent::EventType::READ_HUP)
 					{
-						connection->RDHUP();
+						co_await connection->RDHUP();
 					}
 				}
 			}
@@ -1380,7 +1380,7 @@ void IOCPCoreProcessImpl::DoPostExcuteEvents(std::vector<std::shared_ptr<Sequent
 		};
 	for (auto event : events)
 	{
-		_ExcuteEventProcessPool.submit(task, event);
+		CoroTask::Run(std::bind(task, event));
 	}
 }
 

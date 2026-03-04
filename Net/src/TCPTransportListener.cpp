@@ -92,17 +92,17 @@ bool TCPTransportListener::ReleaseListener()
 	return true;
 }
 
-void TCPTransportListener::BindAcceptCallBack(std::function<void(std::shared_ptr<TCPTransportConnection>)> callback)
+void TCPTransportListener::BindAcceptCallBack(std::function<Task<void>(std::shared_ptr<TCPTransportConnection>)> callback)
 {
 	this->_callbackAccept = callback;
 }
 
 #ifdef __linux__
-void TCPTransportListener::OnREAD(BaseSocket socket)
+Task<void> TCPTransportListener::OnREAD(BaseSocket socket)
 {
 }
 
-void TCPTransportListener::OnACCEPT(BaseSocket socket)
+Task<void> TCPTransportListener::OnACCEPT(BaseSocket socket)
 {
 	if (socket == this->_socket)
 	{
@@ -116,8 +116,9 @@ void TCPTransportListener::OnACCEPT(BaseSocket socket)
 				std::shared_ptr<TCPTransportConnection> client = std::make_shared<TCPTransportConnection>();
 				client->Apply(clientSocket, addr, this->_type);
 				// cout << "tcpclient connect ,address: " << inet_ntoa(addr.sin_addr) << ":" << ntohs(addr.sin_port) << endl;
-				if (_callbackAccept)
-					_callbackAccept(client);
+				auto callback = _callbackAccept;
+				if (callback)
+					co_await callback(client);
 			}
 			else
 			{
@@ -129,26 +130,29 @@ void TCPTransportListener::OnACCEPT(BaseSocket socket)
 }
 #endif
 
-void TCPTransportListener::OnREAD(BaseSocket socket, Buffer& Buffer)
+Task<void> TCPTransportListener::OnREAD(BaseSocket socket, Buffer& Buffer)
 {
+	co_return;
 }
 
-void TCPTransportListener::OnACCEPT(BaseSocket socket, BaseSocket newsocket, sockaddr_in addr)
+Task<void> TCPTransportListener::OnACCEPT(BaseSocket socket, BaseSocket newsocket, sockaddr_in addr)
 {
 	if (socket == this->_socket)
 	{
 		if (newsocket <= 0)
-			return;
+			co_return;
 
 		BaseSocket clientSocket = newsocket;
 		std::shared_ptr<TCPTransportConnection> client = std::make_shared<TCPTransportConnection>();
 		client->Apply(clientSocket, addr, this->_type);
 		// cout << "tcpclient connect ,address: " << inet_ntoa(addr.sin_addr) << ":" << ntohs(addr.sin_port) << endl;
-		if (_callbackAccept)
-			_callbackAccept(client);
+		auto callback = _callbackAccept;
+		if (callback)
+			co_await callback(client);
 	}
 }
 
-void TCPTransportListener::OnRDHUP()
+Task<void> TCPTransportListener::OnRDHUP()
 {
+	co_return;
 }

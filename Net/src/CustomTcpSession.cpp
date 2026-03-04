@@ -211,21 +211,21 @@ Task<std::shared_ptr<AwaitResult>> CustomTcpSession::AwaitSend(Buffer buffer, st
 	}
 }
 
-bool CustomTcpSession::OnSessionClose()
+Task<void> CustomTcpSession::OnSessionClose()
 {
 	auto callback = _callbackSessionClose;
 	Release();
 	if (callback)
-		callback(this);
-	return true;
+		co_await callback(this);
+	co_return;
 }
 
-bool CustomTcpSession::OnRecvData(Buffer* buffer)
+Task<void> CustomTcpSession::OnRecvData(Buffer* buffer)
 {
 	if (!isHandshakeComplete)
 	{
 		if (CheckHandshakeConfirmMsg(*buffer) != CheckHandshakeStatus::Success)
-			return false;
+			co_return;
 	}
 
 	if (buffer->Remain() > 0)
@@ -245,7 +245,7 @@ bool CustomTcpSession::OnRecvData(Buffer* buffer)
 			cachePak = new CustomPackage();
 
 			std::lock_guard<SpinLock> lock(_ProcessLock);
-			ProcessPakage(newPak);
+			co_await ProcessPakage(newPak);
 		}
 		else if (result == AnalysisResult::BufferAGAIN)
 		{
@@ -259,7 +259,7 @@ bool CustomTcpSession::OnRecvData(Buffer* buffer)
 		{
 		}
 	}
-	return true;
+	co_return;
 }
 
 bool CustomTcpSession::Send(const Buffer& buffer, int ack)
@@ -281,7 +281,7 @@ bool CustomTcpSession::Send(const Buffer& buffer, int ack)
 	}
 }
 
-void CustomTcpSession::ProcessPakage(CustomPackage* newPak)
+Task<void> CustomTcpSession::ProcessPakage(CustomPackage* newPak)
 {
 
 	if (newPak)
@@ -310,38 +310,40 @@ void CustomTcpSession::ProcessPakage(CustomPackage* newPak)
 		{
 		case 0:
 		{
-			if (_callbackRecvData)
+			auto callbackrecvdata = _callbackRecvData;
+			if (!callbackrecvdata)
+				co_return;
+
+			try
 			{
-				try
-				{
-					_callbackRecvData(this, &pak->buffer);
-				}
-				catch (...)
-				{
-				}
-				_RecvPaks.dequeue(pak);
-				SAFE_DELETE(pak);
+				co_await callbackrecvdata(this, &pak->buffer);
 			}
+			catch (...)
+			{
+			}
+			_RecvPaks.dequeue(pak);
+			SAFE_DELETE(pak);
 			break;
 		}
 		case 1:
 		{
-			if (_callbackRecvRequest)
+			auto callbackrecvRequest = _callbackRecvRequest;
+			if (!callbackrecvRequest)
+				co_return;
+
+			Buffer resposne;
+			try
 			{
-				Buffer resposne;
-				try
-				{
-					_callbackRecvRequest(this, &pak->buffer, &resposne);
-				}
-				catch (...)
-				{
-				}
-				if (resposne.Length() > 0)
-					Send(resposne, pak->seq);
-				resposne.Release();
-				_RecvPaks.dequeue(pak);
-				SAFE_DELETE(pak);
+				co_await callbackrecvRequest(this, &pak->buffer, &resposne);
 			}
+			catch (...)
+			{
+			}
+			if (resposne.Length() > 0)
+				Send(resposne, pak->seq);
+			resposne.Release();
+			_RecvPaks.dequeue(pak);
+			SAFE_DELETE(pak);
 
 			break;
 		}
@@ -373,11 +375,11 @@ void CustomTcpSession::ProcessPakage(CustomPackage* newPak)
 
 void CustomTcpSession::OnBindRecvDataCallBack()
 {
-	if (_ProcessLock.trylock())
+	if (_ProcessLock.try_lock())
 	{
 		try
 		{
-			ProcessPakage();
+			ProcessPakage().sync_wait();;
 		}
 		catch (const std::exception& e)
 		{
@@ -464,7 +466,7 @@ PureTCPClient* CustomTcpSession::GetBaseClient()
 	return (PureTCPClient*)BaseClient;
 }
 
-void CustomTcpSession::BindRecvRequestCallBack(std::function<void(BaseNetWorkSession*, Buffer* recv, Buffer* resp)> callback)
+void CustomTcpSession::BindRecvRequestCallBack(std::function<Task<void>(BaseNetWorkSession*, Buffer* recv, Buffer* resp)> callback)
 {
 	_callbackRecvRequest = callback;
 	OnBindRecvRequestCallBack();
@@ -472,11 +474,11 @@ void CustomTcpSession::BindRecvRequestCallBack(std::function<void(BaseNetWorkSes
 
 void CustomTcpSession::OnBindRecvRequestCallBack()
 {
-	if (_ProcessLock.trylock())
+	if (_ProcessLock.try_lock())
 	{
 		try
 		{
-			ProcessPakage();
+			ProcessPakage().sync_wait();
 		}
 		catch (const std::exception& e)
 		{

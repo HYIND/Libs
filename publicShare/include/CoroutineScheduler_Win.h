@@ -72,23 +72,6 @@ private:
 	bool SubmitTimeOutEvent(Coro_IOCPOPData* opdata);
 	bool SubmitCoroutineEvent(Coro_IOCPOPData* opdata);
 
-	template <typename Callable>
-	void ExcuteCoroutine(Callable&& callable)
-	{
-		_ExcuteEventProcessPool.submit([callable = std::forward<Callable>(callable)]() mutable
-			{
-				try
-				{
-					std::atomic_thread_fence(std::memory_order_acquire);
-					callable();
-					std::atomic_thread_fence(std::memory_order_release);
-				}
-				catch (const std::exception& e)
-				{
-					std::cerr << "ExcuteCoroutine task Error: " << e.what() << '\n';
-				} });
-	}
-
 private:
 	bool _shouldshutdown;
 	bool _isrunning;

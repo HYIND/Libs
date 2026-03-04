@@ -49,15 +49,16 @@ public:
 	}
 
 public:
-	void PrintMessage(BaseNetWorkSession* basesession, Buffer* recv)
+	Task<void> PrintMessage(BaseNetWorkSession* basesession, Buffer* recv)
 	{
 		string data(recv->Byte(), recv->Length());
 		cout << "Client RecvData: RemoteIpAddr=" << basesession->GetIPAddr()
 			<< ":" << basesession->GetPort()
 			<< ", data:" << data << " \n";
+		co_return;
 	}
 
-	void PrintRequestMessage(BaseNetWorkSession* basesession, Buffer* recv, Buffer* resp)
+	Task<void> PrintRequestMessage(BaseNetWorkSession* basesession, Buffer* recv, Buffer* resp)
 	{
 
 		string data(recv->Byte(), recv->Length());
@@ -65,12 +66,14 @@ public:
 			<< ":" << basesession->GetPort()
 			<< ", data:" << data << " \n";
 		resp->CopyFromBuf(*recv);
+		co_return;
 	}
 
-	void PrintCloseConnect(BaseNetWorkSession* session)
+	Task<void> PrintCloseConnect(BaseNetWorkSession* session)
 	{
 		cout << "Client Connection Close: RemoteIpAddr=" << session->GetIPAddr()
 			<< ":" << session->GetPort() << " \n";
+		co_return;
 	}
 
 	bool ConnectTo(const std::string& IP, uint16_t Port)
@@ -150,7 +153,7 @@ void testNet()
 
 int main(int argc, char* argv[])
 {
-	#ifdef _WIN32
+#ifdef _WIN32
 	system("chcp 65001 > nul"); // 切换到 UTF-8
 #endif
 

@@ -16,17 +16,17 @@ public:
 	~TCPTransportListener();
 	bool Listen(const std::string& IP, int Port);
 	bool ReleaseListener();
-	void BindAcceptCallBack(std::function<void(std::shared_ptr<TCPTransportConnection>)> callback);
+	void BindAcceptCallBack(std::function<Task<void>(std::shared_ptr<TCPTransportConnection>)> callback);
 
 protected:
 #ifdef __linux__
-	virtual void OnREAD(BaseSocket socket);									// 可读事件
-	virtual void OnACCEPT(BaseSocket socket);									// 接受新连接事件
+	virtual Task<void> OnREAD(BaseSocket socket);									// 可读事件
+	virtual Task<void> OnACCEPT(BaseSocket socket);									// 接受新连接事件
 #endif
-	virtual void OnREAD(BaseSocket socket, Buffer& buf);						// 可读事件
-	virtual void OnACCEPT(BaseSocket socket, BaseSocket newsocket, sockaddr_in addr); // 接受新连接事件
-	virtual void OnRDHUP();
+	virtual Task<void> OnREAD(BaseSocket socket, Buffer& buf);						// 可读事件
+	virtual Task<void> OnACCEPT(BaseSocket socket, BaseSocket newsocket, sockaddr_in addr); // 接受新连接事件
+	virtual Task<void> OnRDHUP();
 
 private:
-	std::function<void(std::shared_ptr<TCPTransportConnection>)> _callbackAccept;
+	std::function<Task<void>(std::shared_ptr<TCPTransportConnection>)> _callbackAccept;
 };

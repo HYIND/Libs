@@ -60,12 +60,12 @@ bool TcpEndPointListener::Listen(const std::string& IP, int Port)
 	return BaseListener->Listen(IP, Port);
 }
 
-void TcpEndPointListener::BindEstablishConnectionCallBack(std::function<void(TCPEndPoint*)> callback)
+void TcpEndPointListener::BindEstablishConnectionCallBack(std::function<Task<void>(TCPEndPoint*)> callback)
 {
 	_callBackEstablish = callback;
 }
 
-void TcpEndPointListener::RecvCon(std::shared_ptr<TCPTransportConnection> waitCon)
+Task<void> TcpEndPointListener::RecvCon(std::shared_ptr<TCPTransportConnection> waitCon)
 {
 	switch (_Protocol)
 	{
@@ -90,9 +90,10 @@ void TcpEndPointListener::RecvCon(std::shared_ptr<TCPTransportConnection> waitCo
 		std::cout << "TcpEndPointListener::RecvCon ,Protocol Error!\n";
 		break;
 	}
+	co_return;
 }
 
-void TcpEndPointListener::ConClose(TCPTransportConnection* Con)
+Task<void> TcpEndPointListener::ConClose(TCPTransportConnection* Con)
 {
 	waitClients.EnsureCall(
 		[&](std::vector<std::shared_ptr<ClientData>>& array) -> void
@@ -111,9 +112,10 @@ void TcpEndPointListener::ConClose(TCPTransportConnection* Con)
 				it++;
 			}
 		});
+	co_return;
 }
 
-void TcpEndPointListener::Handshake(TCPTransportConnection* waitCon, Buffer* buf)
+Task<void> TcpEndPointListener::Handshake(TCPTransportConnection* waitCon, Buffer* buf)
 {
 	waitClients.EnsureCall(
 		[&](std::vector<std::shared_ptr<ClientData>>& array) -> void
@@ -132,12 +134,12 @@ void TcpEndPointListener::Handshake(TCPTransportConnection* waitCon, Buffer* buf
 				if (result == CheckHandshakeStatus::Success)
 				{
 					if (_callBackEstablish)
-						_callBackEstablish(client);
+						_callBackEstablish(client).sync_wait();
 					array.erase(it);
 					waitCon->BindBufferCallBack(std::bind(&TCPEndPoint::RecvBuffer, client, std::placeholders::_1, std::placeholders::_2));
 					waitCon->BindRDHUPCallBack(std::bind(&TCPEndPoint::ConnectClose, client, std::placeholders::_1));
 					if (buf->Remain() > 0)
-						client->RecvBuffer(waitCon, buf);
+						client->RecvBuffer(waitCon, buf).sync_wait();
 				}
 				if (result == CheckHandshakeStatus::BufferAgain)
 					return;
@@ -150,6 +152,7 @@ void TcpEndPointListener::Handshake(TCPTransportConnection* waitCon, Buffer* buf
 				return;
 			}
 		});
+	co_return;
 }
 
 void TcpEndPointListener::CleanExpiredClient()

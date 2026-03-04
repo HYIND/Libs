@@ -15,7 +15,7 @@ SpinLock::SpinLock()
 }
 #endif
 
-bool SpinLock::trylock()
+bool SpinLock::try_lock()
 {
 	return !_flag.test_and_set();
 }
@@ -42,7 +42,7 @@ RecursiveSpinLock::RecursiveSpinLock()
 }
 #endif
 
-bool RecursiveSpinLock::trylock()
+bool RecursiveSpinLock::try_lock()
 {
 	auto current_id = std::this_thread::get_id();
 	if (_owner == current_id)

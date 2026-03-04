@@ -91,14 +91,94 @@ void testCoroutine()
 	corotask.sync_wait();
 }
 
+Task<void> root();
+Task<void> child1();
+Task<void> grandchild();
+Task<void> child2();
+
+Task<void> testroot() {
+	// 根协程设置上下文
+	CoroutineContext::setData("request_id", std::string("req-123"));
+	CoroutineContext::setData("user_id", 456);
+
+	auto reqId = CoroutineContext::getData<std::string>("request_id");
+	auto userId = CoroutineContext::getData<int>("user_id");
+	std::cout << "root-----\n";
+	if (reqId)
+		cout << "reqId = " << *reqId << '\n';
+	if (userId)
+		cout << "userId = " << *userId << '\n';
+
+	co_await child1();  // 子协程自动继承
+	co_await child2();  // 子协程自动继承
+	co_return;
+}
+
+Task<void> child1() {
+
+	//仅本协程极子协程可见
+	bool result = CoroutineContext::setData("request_id", std::string("child1-req-234"));
+
+	//显式回溯父协程
+	if (auto parentReqId = CoroutineContext::getData<std::string>("request_id", true))
+		*parentReqId = std::string("child1-modify-req-234");
+
+	auto reqId = CoroutineContext::getData<std::string>("request_id");
+	auto userId = CoroutineContext::getData<int>("user_id");
+
+	std::cout << "child1-----\n";
+	if (reqId)
+		cout << "reqId = " << *reqId << '\n';
+	if (userId)
+		cout << "userId = " << *userId << '\n';
+
+	co_await grandchild();  // 孙子协程继续继承
+	co_return;
+}
+
+Task<void> child2() {
+	// 添加新的上下文
+	CoroutineContext::setData("child2_only", true);
+
+	std::cout << "child2-----\n";
+	auto child2_only = CoroutineContext::getData<bool>("request_id");
+	auto reqId = CoroutineContext::getData<std::string>("request_id");
+	auto userId = CoroutineContext::getData<int>("user_id");
+	if (child2_only)
+		cout << "child2_only = " << (*child2_only ? string("true") : string("false")) << '\n';
+	if (reqId)
+		cout << "reqId = " << *reqId << '\n';
+	if (userId)
+		cout << "userId = " << *userId << '\n';
+
+	co_return;
+}
+
+Task<void> grandchild() {
+
+	std::cout << "grandchild-----\n";
+	auto child2_only = CoroutineContext::getData<bool>("child2_only");
+	auto reqId = CoroutineContext::getData<std::string>("request_id");
+	auto userId = CoroutineContext::getData<int>("user_id");
+	if (child2_only)
+		cout << "child2_only = " << *child2_only << '\n';
+	if (reqId)
+		cout << "reqId = " << *reqId << '\n';
+	if (userId)
+		cout << "userId = " << *userId << '\n';
+	co_return;
+}
+
 int main(int argc, char* argv[])
 {
 #ifdef _WIN32
 	system("chcp 65001 > nul"); // 切换到 UTF-8
 #endif
 
-	testCoroutine();
+	//测试协程上下文系统
+	//testroot().sync_wait();
 
+	testCoroutine();
 	std::cout << "按回车退出程序..." << std::endl;
 	std::cin.get();
 }

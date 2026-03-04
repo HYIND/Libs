@@ -37,12 +37,12 @@ bool BaseTransportConnection::isOnCallback()
 		_OnACCEPTCount.load(std::memory_order_relaxed) > 0;
 }
 
-void BaseTransportConnection::RDHUP()
+Task<void> BaseTransportConnection::RDHUP()
 {
 	_OnRDHUPCount.fetch_add(1, std::memory_order_relaxed);
 	try
 	{
-		OnRDHUP();
+		co_await OnRDHUP();
 	}
 	catch (const std::exception& e)
 	{
@@ -50,7 +50,7 @@ void BaseTransportConnection::RDHUP()
 	_OnRDHUPCount.fetch_sub(1, std::memory_order_relaxed);
 }
 #ifdef __linux__
-void BaseTransportConnection::READ(BaseSocket socket)
+Task<void> BaseTransportConnection::READ(BaseSocket socket)
 {
 	_OnREADCount.fetch_add(1, std::memory_order_relaxed);
 	try
@@ -62,7 +62,7 @@ void BaseTransportConnection::READ(BaseSocket socket)
 	}
 	_OnREADCount.fetch_sub(1, std::memory_order_relaxed);
 }
-void BaseTransportConnection::ACCEPT(BaseSocket fdsocket)
+Task<void> BaseTransportConnection::ACCEPT(BaseSocket fdsocket)
 {
 	_OnACCEPTCount.fetch_add(1, std::memory_order_relaxed);
 	try
@@ -75,24 +75,24 @@ void BaseTransportConnection::ACCEPT(BaseSocket fdsocket)
 	_OnACCEPTCount.fetch_sub(1, std::memory_order_relaxed);
 }
 #endif
-void BaseTransportConnection::READ(BaseSocket socket, Buffer& buf)
+Task<void> BaseTransportConnection::READ(BaseSocket socket, Buffer& buf)
 {
 	_OnREADCount.fetch_add(1, std::memory_order_relaxed);
 	try
 	{
-		OnREAD(socket, buf);
+		co_await OnREAD(socket, buf);
 	}
 	catch (const std::exception& e)
 	{
 	}
 	_OnREADCount.fetch_sub(1, std::memory_order_relaxed);
 }
-void BaseTransportConnection::ACCEPT(BaseSocket socket, BaseSocket newclient, sockaddr_in addr)
+Task<void> BaseTransportConnection::ACCEPT(BaseSocket socket, BaseSocket newclient, sockaddr_in addr)
 {
 	_OnACCEPTCount.fetch_add(1, std::memory_order_relaxed);
 	try
 	{
-		OnACCEPT(socket, newclient, addr);
+		co_await OnACCEPT(socket, newclient, addr);
 	}
 	catch (const std::exception& e)
 	{

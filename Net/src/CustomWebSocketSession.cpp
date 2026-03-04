@@ -119,34 +119,34 @@ bool CustomWebSocketSession::AwaitSend(const Buffer &buffer, Buffer &response)
     }
 }
 
-bool CustomWebSocketSession::OnSessionClose()
+Task<void> CustomWebSocketSession::OnSessionClose()
 {
     auto callback = _callbackSessionClose;
     Release();
     if (callback)
-        callback(this);
-    return true;
+        co_await callback(this);
+    co_return;
 }
 
-bool CustomWebSocketSession::OnRecvData(Buffer *buffer)
+Task<void> CustomWebSocketSession::OnRecvData(Buffer *buffer)
 {
     CustomWebSocketSessionPakage *pak = new CustomWebSocketSessionPakage();
-    pak->buffer.CopyFromBuf(*buffer);
+    pak->buffer.QuoteFromBuf(*buffer);
     ShiftPakHeader(pak);
     _ProcessLock.lock();
-    ProcessPakage(pak);
+    co_await ProcessPakage(pak);
     _ProcessLock.unlock();
 
-    return true;
+    co_return;
 }
 
 void CustomWebSocketSession::OnBindRecvDataCallBack()
 {
-    if (_ProcessLock.trylock())
+    if (_ProcessLock.try_lock())
     {
         try
         {
-            ProcessPakage();
+            ProcessPakage().sync_wait();
         }
         catch (const std::exception &e)
         {
@@ -203,7 +203,7 @@ bool CustomWebSocketSession::Send(const Buffer &buffer, int ack)
     }
 }
 
-void CustomWebSocketSession::ProcessPakage(CustomWebSocketSessionPakage *newPak)
+Task<void> CustomWebSocketSession::ProcessPakage(CustomWebSocketSessionPakage *newPak)
 {
     if (newPak)
     {
@@ -243,9 +243,10 @@ void CustomWebSocketSession::ProcessPakage(CustomWebSocketSessionPakage *newPak)
     CustomWebSocketSessionPakage *pak = nullptr;
     while (_RecvPaks.front(pak) && count > 0)
     {
-        if (_callbackRecvData)
+        auto callback = _callbackRecvData;
+        if (callback)
         {
-            _callbackRecvData(this, &pak->buffer);
+            co_await callback(this, &pak->buffer);
             _RecvPaks.dequeue(pak);
             SAFE_DELETE(pak);
         }

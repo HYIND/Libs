@@ -40,33 +40,33 @@ bool PureWebSocketSession::AsyncSend(const Buffer& buffer)
 	return Send(buffer);
 }
 
-bool PureWebSocketSession::OnSessionClose()
+Task<void> PureWebSocketSession::OnSessionClose()
 {
 	auto callback = _callbackSessionClose;
 	Release();
 	if (callback)
-		callback(this);
-	return true;
+		co_await callback(this);
+	co_return;
 }
 
-bool PureWebSocketSession::OnRecvData(Buffer* buffer)
+Task<void> PureWebSocketSession::OnRecvData(Buffer* buffer)
 {
 	PureWebSocketSessionPakage* pak = new PureWebSocketSessionPakage();
-	pak->buffer.CopyFromBuf(*buffer);
+	pak->buffer.QuoteFromBuf(*buffer);
 	_ProcessLock.lock();
-	ProcessPakage(pak);
+	co_await ProcessPakage(pak);
 	_ProcessLock.unlock();
 
-	return true;
+	co_return;
 }
 
 void PureWebSocketSession::OnBindRecvDataCallBack()
 {
-	if (_ProcessLock.trylock())
+	if (_ProcessLock.try_lock())
 	{
 		try
 		{
-			ProcessPakage();
+			ProcessPakage().sync_wait();
 		}
 		catch (const std::exception& e)
 		{
@@ -121,7 +121,7 @@ bool PureWebSocketSession::Send(const Buffer& buffer)
 	}
 }
 
-void PureWebSocketSession::ProcessPakage(PureWebSocketSessionPakage* newPak)
+Task<void> PureWebSocketSession::ProcessPakage(PureWebSocketSessionPakage* newPak)
 {
 	if (newPak)
 	{
@@ -138,11 +138,10 @@ void PureWebSocketSession::ProcessPakage(PureWebSocketSessionPakage* newPak)
 	PureWebSocketSessionPakage* pak = nullptr;
 	while (_RecvPaks.front(pak) && count > 0)
 	{
-		if (_callbackRecvData)
+		auto callback = _callbackRecvData;
+		if (callback)
 		{
-			_callbackRecvData(this, &pak->buffer);
-			if (!isHandshakeComplete)
-				return;
+			co_await callback(this, &pak->buffer);
 			_RecvPaks.dequeue(pak);
 			SAFE_DELETE(pak);
 		}

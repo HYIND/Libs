@@ -97,12 +97,12 @@ bool TCPTransportConnection::Send(const Buffer& buffer)
 	}
 }
 
-void TCPTransportConnection::BindBufferCallBack(function<void(TCPTransportConnection*, Buffer*)> callback)
+void TCPTransportConnection::BindBufferCallBack(function<Task<void>(TCPTransportConnection*, Buffer*)> callback)
 {
 	_callbackBuffer = callback;
 	OnBindBufferCallBack();
 }
-void TCPTransportConnection::BindRDHUPCallBack(function<void(TCPTransportConnection*)> callback)
+void TCPTransportConnection::BindRDHUPCallBack(function<Task<void>(TCPTransportConnection*)> callback)
 {
 	_callbackRDHUP = callback;
 	OnBindRDHUPCallBack();
@@ -111,7 +111,7 @@ SafeQueue<Buffer*>& TCPTransportConnection::GetSendData() { return _SendDatas; }
 CriticalSectionLock& TCPTransportConnection::GetSendMtx() { return _SendResMtx; }
 
 #ifdef __linux__
-void TCPTransportConnection::OnREAD(BaseSocket socket)
+Task<void> TCPTransportConnection::OnREAD(BaseSocket socket)
 {
 	auto read = [&](Buffer& buf, int length) -> bool
 		{
@@ -182,12 +182,12 @@ void TCPTransportConnection::OnREAD(BaseSocket socket)
 	}
 
 	std::lock_guard<SpinLock> processlock(_ProcessLock);
-	ProcessRecvQueue();
+	co_await ProcessRecvQueue();
 }
-void TCPTransportConnection::OnACCEPT(BaseSocket socket) {}
+Task<void> TCPTransportConnection::OnACCEPT(BaseSocket socket) {}
 #endif
 
-void TCPTransportConnection::OnREAD(BaseSocket socket, Buffer& buf)
+Task<void> TCPTransportConnection::OnREAD(BaseSocket socket, Buffer& buf)
 {
 
 	Buffer* copybuf = new Buffer();
@@ -196,16 +196,17 @@ void TCPTransportConnection::OnREAD(BaseSocket socket, Buffer& buf)
 	_RecvDatas.enqueue(copybuf);
 
 	std::lock_guard<SpinLock> processlock(_ProcessLock);
-	ProcessRecvQueue();
+	co_await ProcessRecvQueue();
+	co_return;
 }
 
-void TCPTransportConnection::OnACCEPT(BaseSocket socket, BaseSocket newsocket, sockaddr_in addr) {}
+Task<void> TCPTransportConnection::OnACCEPT(BaseSocket socket, BaseSocket newsocket, sockaddr_in addr) { co_return; }
 
 void TCPTransportConnection::OnBindBufferCallBack()
 {
-	if (_ProcessLock.trylock())
+	if (_ProcessLock.try_lock())
 	{
-		ProcessRecvQueue();
+		ProcessRecvQueue().sync_wait();
 		_ProcessLock.unlock();
 	}
 }
@@ -214,8 +215,11 @@ void TCPTransportConnection::OnBindRDHUPCallBack()
 {
 }
 
-void TCPTransportConnection::ProcessRecvQueue()
+Task<void> TCPTransportConnection::ProcessRecvQueue()
 {
+	auto callback = _callbackBuffer;
+	if (!callback)
+		co_return;
 	while (!_RecvDatas.empty())
 	{
 		Buffer* buf = nullptr;
@@ -223,41 +227,31 @@ void TCPTransportConnection::ProcessRecvQueue()
 			break;
 
 		int pos = buf->Position();
-		if (_callbackBuffer)
+
+		try
 		{
-			try
-			{
-				_callbackBuffer(this, buf);
-			}
-			catch (...)
-			{
-			}
+			co_await callback(this, buf);
+		}
+		catch (...)
+		{
 		}
 
-		// 该流已经被读取完毕
-		if (buf->Length() - buf->Position() == 0)
-		{
-			_RecvDatas.dequeue(buf);
-			if (!ValidSocket())
-				return;
-			SAFE_DELETE(buf);
-			continue;
-		}
-
-		// 流未读取完毕，但Postion前后未发生变化，表示应用层暂不需要数据
-		if (pos == buf->Position())
-			break;
+		_RecvDatas.dequeue(buf);
+		if (!ValidSocket())
+			co_return;
+		SAFE_DELETE(buf);
+		continue;
 	}
 }
 
-void TCPTransportConnection::OnRDHUP()
+Task<void> TCPTransportConnection::OnRDHUP()
 {
 	auto call = _callbackRDHUP;
 	if (call)
 	{
 		try
 		{
-			call(this);
+			co_await call(this);
 		}
 		catch (...)
 		{

@@ -2,15 +2,18 @@
 
 #ifdef __linux__
 #include <pthread.h>
-#include <mutex>
 #elif defined(_WIN32)
 #ifndef NOMINMAX
-#    define NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
 #endif
 #include <condition_variable>
 #include <chrono>
+#include <concepts>
 
 #include "PublicShareExportMacro.h"
 
@@ -23,7 +26,7 @@ public:
 	void Enter();
 	void Leave();
 
-	// 适配std::lock_guard和condition_variable
+	// 适配std::lock_guard、condition_variable
 public:
 	bool try_lock();
 	void lock();
@@ -38,25 +41,66 @@ private:
 #endif
 };
 
-class PUBLICSHARE_API LockGuard
+template<typename T>
+concept TryLockable = requires(T & lock) {
+	lock.lock();
+	lock.unlock();
+	{ lock.try_lock() } -> std::convertible_to<bool>;
+};
+template<typename T>
+concept Lockable = requires(T & lock) {
+	lock.lock();
+	lock.unlock();
+};
+
+template<TryLockable T>
+class LockGuard
 {
 public:
-	LockGuard(CriticalSectionLock& lock, bool istrylock = false);
-	bool isownlock();
-	~LockGuard();
+	LockGuard(T& mutex, bool istrylock = false)
+		: _mutex(mutex), _isownlock(false)
+	{
+		if (istrylock)
+			_isownlock = _mutex.try_lock();
+		else
+			lock();
+	}
+
+	~LockGuard() {
+		unlock();
+	}
+
+	bool isownlock() const { return _isownlock; }
+
+	void lock()
+	{
+		if (!_isownlock)
+		{
+			_mutex.lock();
+			_isownlock = true;
+		}
+	}
+
+	void unlock() {
+		if (_isownlock) {
+			_mutex.unlock();
+			_isownlock = false;
+		}
+	}
 
 	LockGuard(const LockGuard&) = delete;
 	LockGuard& operator=(const LockGuard&) = delete;
 	LockGuard(LockGuard&&) = delete;
 	LockGuard& operator=(LockGuard&&) = delete;
 
-	void lock();
-	void unlock();
-
 private:
-	CriticalSectionLock& _lock;
+	T& _mutex;
 	bool _isownlock;
 };
+
+template<TryLockable T>
+LockGuard(T&, bool) -> LockGuard<T>;
+
 
 class PUBLICSHARE_API ConditionVariable
 {
@@ -69,16 +113,24 @@ public:
 	ConditionVariable(ConditionVariable&&) = delete;
 	ConditionVariable& operator=(ConditionVariable&&) = delete;
 
-	void Wait(LockGuard& lock);
-	bool WaitFor(LockGuard& lock, const std::chrono::microseconds ms);
-	template <class BoolFunc>
-	bool WaitFor(LockGuard& lock, const std::chrono::microseconds ms, BoolFunc func)
+	template<Lockable T>
+	void Wait(T& lock)
+	{
+		_cv.wait(lock);
+	}
+	template<Lockable T>
+	bool WaitFor(T& lock, const std::chrono::milliseconds ms)
+	{
+		return _cv.wait_for(lock, ms) == std::cv_status::timeout;
+	}
+	template <Lockable T, class BoolFunc>
+	bool WaitFor(T& lock, const std::chrono::milliseconds ms, BoolFunc func)
 	{
 		return _cv.wait_for(lock, ms, func);
 	}
 
-	void NotifyAll();
-	void NotifyOne();
+	void NotifyAll() { _cv.notify_all(); }
+	void NotifyOne() { _cv.notify_one(); }
 
 private:
 	std::condition_variable_any _cv;

@@ -61,12 +61,12 @@ bool NetWorkSessionListener::Listen(const std::string& IP, int Port)
 	return BaseListener.Listen(IP, Port);
 }
 
-void NetWorkSessionListener::BindSessionEstablishCallBack(std::function<void(BaseNetWorkSession*)> callback)
+void NetWorkSessionListener::BindSessionEstablishCallBack(std::function<Task<void>(BaseNetWorkSession*)> callback)
 {
 	_callBackSessionEstablish = callback;
 }
 
-void NetWorkSessionListener::RecvClient(TCPEndPoint* waitClient)
+Task<void> NetWorkSessionListener::RecvClient(TCPEndPoint* waitClient)
 {
 
 	switch (_sessiontype)
@@ -103,9 +103,10 @@ void NetWorkSessionListener::RecvClient(TCPEndPoint* waitClient)
 		std::cout << "SessionListener: SessionType Error!\n";
 		break;
 	}
+	co_return;
 }
 
-void NetWorkSessionListener::ClientClose(TCPEndPoint* client)
+Task<void> NetWorkSessionListener::ClientClose(TCPEndPoint* client)
 {
 	waitSessions.EnsureCall(
 		[&](std::vector<std::shared_ptr<SessionData>>& array) -> void
@@ -129,9 +130,10 @@ void NetWorkSessionListener::ClientClose(TCPEndPoint* client)
 				}
 			}
 		});
+	co_return;
 }
 
-void NetWorkSessionListener::Handshake(TCPEndPoint* waitClient, Buffer* buf)
+Task<void> NetWorkSessionListener::Handshake(TCPEndPoint* waitClient, Buffer* buf)
 {
 	waitSessions.EnsureCall(
 		[&](std::vector<std::shared_ptr<SessionData>>& array) -> void
@@ -154,12 +156,12 @@ void NetWorkSessionListener::Handshake(TCPEndPoint* waitClient, Buffer* buf)
 					if (result == CheckHandshakeStatus::Success)
 					{
 						if (_callBackSessionEstablish)
-							_callBackSessionEstablish(session);
+							_callBackSessionEstablish(session).sync_wait();
 						array.erase(it);
 						waitClient->BindMessageCallBack(std::bind(&BaseNetWorkSession::RecvData, session, std::placeholders::_1, std::placeholders::_2));
 						waitClient->BindCloseCallBack(std::bind(&BaseNetWorkSession::SessionClose, session, std::placeholders::_1));
 						if (buf->Remain() > 0)
-							session->RecvData(base, buf);
+							session->RecvData(base, buf).sync_wait();
 					}
 					if (result == CheckHandshakeStatus::BufferAgain)
 					{
@@ -174,6 +176,7 @@ void NetWorkSessionListener::Handshake(TCPEndPoint* waitClient, Buffer* buf)
 				}
 			}
 		});
+	co_return;
 }
 void NetWorkSessionListener::CleanExpiredSession()
 {

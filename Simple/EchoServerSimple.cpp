@@ -55,7 +55,7 @@ public:
 	}
 
 public:
-	void PrintSessionEstablish(BaseNetWorkSession* session)
+	Task<void> PrintSessionEstablish(BaseNetWorkSession* session)
 	{
 		cout << "SessionEstablish:RemoteAddr=" << session->GetIPAddr()
 			<< ":" << session->GetPort() << " \n";
@@ -69,9 +69,10 @@ public:
 		}
 
 		sessions.emplace(session);
+		co_return;
 	}
 
-	void EchoMessage(BaseNetWorkSession* basesession, Buffer* recv)
+	Task<void> EchoMessage(BaseNetWorkSession* basesession, Buffer* recv)
 	{
 		CustomTcpSession* session = (CustomTcpSession*)basesession;
 
@@ -82,9 +83,10 @@ public:
 
 		// Echo
 		session->AsyncSend(*recv);
+		co_return;
 	}
 
-	void EchoRequestMessage(BaseNetWorkSession* basesession, Buffer* recv, Buffer* resp)
+	Task<void> EchoRequestMessage(BaseNetWorkSession* basesession, Buffer* recv, Buffer* resp)
 	{
 		CustomTcpSession* session = (CustomTcpSession*)basesession;
 
@@ -96,10 +98,10 @@ public:
 
 		// Echo
 		resp->CopyFromBuf(*recv);
-		return;
+		co_return;
 	}
 
-	void PrintCloseConnect(BaseNetWorkSession* session)
+	Task<void> PrintCloseConnect(BaseNetWorkSession* session)
 	{
 
 		cout << "EchoServer ClientConn Close: RemoteIpAddr=" << session->GetIPAddr()
@@ -121,6 +123,7 @@ public:
 		);
 
 		DeleteLater(session);
+		co_return;
 	}
 
 	bool Listen(const std::string& IP, int Port)

@@ -42,39 +42,40 @@ bool PureTCPClient::Release()
     return Base::Release();
 }
 
-bool PureTCPClient::OnRecvBuffer(Buffer *buffer)
+Task<void> PureTCPClient::OnRecvBuffer(Buffer *buffer)
 {
     if (!isHandshakeComplete)
     {
         if (CheckHandshakeConfirmMsg(*buffer) != CheckHandshakeStatus::Success)
-            return false;
+            co_return;
     }
 
     if (buffer->Remain() > 0)
         cacheBuffer.Append(*buffer);
 
     std::lock_guard<SpinLock> lock(_ProcessLock);
-    ProcessCacheBuffer();
+    co_await ProcessCacheBuffer();
 
-    return true;
+    co_return;
 }
 
-void PureTCPClient::ProcessCacheBuffer()
+Task<void> PureTCPClient::ProcessCacheBuffer()
 {
-    if (_callbackMessage)
+    auto callback = _callbackMessage;
+    if (callback)
     {
-        _callbackMessage(this, &cacheBuffer);
+        co_await callback(this, &cacheBuffer);
         cacheBuffer.Release();
     }
 }
 
-bool PureTCPClient::OnConnectClose()
+Task<void> PureTCPClient::OnConnectClose()
 {
     auto callback = _callbackClose;
     Release();
     if (callback)
-        callback(this);
-    return true;
+        co_await callback(this);
+    co_return;
 }
 
 bool PureTCPClient::Send(const Buffer &buffer)
@@ -99,19 +100,21 @@ Task<bool> PureTCPClient::TryHandshake()
 
 CheckHandshakeStatus PureTCPClient::CheckHandshakeTryMsg(Buffer &buffer)
 {
+    isHandshakeComplete = true;
     return CheckHandshakeStatus::Success;
 }
 
 CheckHandshakeStatus PureTCPClient::CheckHandshakeConfirmMsg(Buffer &buffer)
 {
+    isHandshakeComplete = true;
     return CheckHandshakeStatus::Success;
 }
 
 void PureTCPClient::OnBindMessageCallBack()
 {
-    if (_ProcessLock.trylock())
+    if (_ProcessLock.try_lock())
     {
-        ProcessCacheBuffer();
+        ProcessCacheBuffer().sync_wait();
         _ProcessLock.unlock();
     }
 }

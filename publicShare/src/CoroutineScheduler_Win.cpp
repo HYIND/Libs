@@ -444,22 +444,28 @@ int CoroutineScheduler::EventProcess(Coro_IOCPOPData* opdata)
 			{
 				auto task = [coro, handle]() -> void
 					{
-						if (handle)
+						try
 						{
 							bool expected = false;
 							if (handle->corodone.compare_exchange_strong(expected, true))
 							{
 								if (!coro.done())
 								{
+									CoroutineContext::setCurrent(coro);
 									coro.resume();
-									//handle->coroutine = nullptr;
+									CoroutineContext::clearCurrent();
 								}
 							}
 						}
+						catch (const std::exception& e)
+						{
+							std::cerr << "ExcuteCoroutine task Error: " << e.what() << '\n';
+						}
+
 					};
 				auto expected = CoTimer::WakeType::RUNNING;
 				handle->result.compare_exchange_strong(expected, CoTimer::WakeType::TIMEOUT);
-				ExcuteCoroutine(task); // 恢复对应的协程
+				_ExcuteEventProcessPool.submit(task);
 			}
 			handle->active = false;
 		}
@@ -474,11 +480,22 @@ int CoroutineScheduler::EventProcess(Coro_IOCPOPData* opdata)
 		{
 			auto task = [handle]() -> void
 				{
-					auto coro = handle->coroutine;
-					if (!coro.done())
-						coro.resume();
+					try
+					{
+						auto coro = handle->coroutine;
+						if (!coro.done())
+						{
+							CoroutineContext::setCurrent(coro);
+							coro.resume();
+							CoroutineContext::clearCurrent();
+						}
+					}
+					catch (const std::exception& e)
+					{
+						std::cerr << "ExcuteCoroutine task Error: " << e.what() << '\n';
+					}
 				};
-			ExcuteCoroutine(task);
+			_ExcuteEventProcessPool.submit(task);
 		}
 	}
 	else if (opdata->OP_Type == Coro_IOCP_OPType::OP_Connect)
@@ -495,20 +512,25 @@ int CoroutineScheduler::EventProcess(Coro_IOCPOPData* opdata)
 			{
 				auto task = [coro, handle]() -> void
 					{
-						if (handle)
+						try
 						{
 							bool expected = false;
 							if (handle->corodone.compare_exchange_strong(expected, true))
 							{
 								if (!coro.done())
 								{
+									CoroutineContext::setCurrent(coro);
 									coro.resume();
-									//handle->coroutine = nullptr;
+									CoroutineContext::clearCurrent();
 								}
 							}
 						}
+						catch (const std::exception& e)
+						{
+							std::cerr << "ExcuteCoroutine task Error: " << e.what() << '\n';
+						}
 					};
-				ExcuteCoroutine(task); // 恢复对应的协程
+				_ExcuteEventProcessPool.submit(task);
 			}
 			handle->active = false;
 		}
@@ -640,4 +662,3 @@ bool CoroutineScheduler::SubmitCoroutineEvent(Coro_IOCPOPData* opdata)
 		&opdata->overlapped
 	) != 0;
 }
-

@@ -30,30 +30,31 @@ bool TCPEndPoint::Release()
     _callbackClose = nullptr;
     return result;
 }
-void TCPEndPoint::BindMessageCallBack(std::function<void(TCPEndPoint *, Buffer *)> callback)
+void TCPEndPoint::BindMessageCallBack(std::function<Task<void>(TCPEndPoint *, Buffer *)> callback)
 {
     _callbackMessage = callback;
     OnBindMessageCallBack();
 }
-void TCPEndPoint::BindCloseCallBack(std::function<void(TCPEndPoint *)> callback)
+void TCPEndPoint::BindCloseCallBack(std::function<Task<void>(TCPEndPoint *)> callback)
 {
     _callbackClose = callback;
     OnBindCloseCallBack();
 }
 
-bool TCPEndPoint::RecvBuffer(TCPTransportConnection *con, Buffer *buffer)
+Task<void> TCPEndPoint::RecvBuffer(TCPTransportConnection *con, Buffer *buffer)
 {
     if (con != BaseCon.get())
-        return false;
-    return OnRecvBuffer(buffer);
+        co_return;
+    co_await OnRecvBuffer(buffer);
+    co_return;
 }
 
-bool TCPEndPoint::ConnectClose(TCPTransportConnection *con)
+Task<void> TCPEndPoint::ConnectClose(TCPTransportConnection *con)
 {
     if (con != BaseCon.get())
-        return false;
-
-    return OnConnectClose();
+        co_return;
+    co_await OnConnectClose();
+    co_return;
 }
 
 std::shared_ptr<TCPTransportConnection> TCPEndPoint::GetBaseCon()

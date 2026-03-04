@@ -40,12 +40,12 @@ bool BaseNetWorkSession::Release()
 	return BaseClient->Release();
 }
 
-void BaseNetWorkSession::BindRecvDataCallBack(std::function<void(BaseNetWorkSession*, Buffer* recv)> callback)
+void BaseNetWorkSession::BindRecvDataCallBack(std::function<Task<void>(BaseNetWorkSession*, Buffer* recv)> callback)
 {
 	_callbackRecvData = callback;
 	OnBindRecvDataCallBack();
 }
-void BaseNetWorkSession::BindSessionCloseCallBack(std::function<void(BaseNetWorkSession*)> callback)
+void BaseNetWorkSession::BindSessionCloseCallBack(std::function<Task<void>(BaseNetWorkSession*)> callback)
 {
 	_callbackSessionClose = callback;
 	OnBindSessionCloseCallBack();
@@ -70,19 +70,18 @@ uint32_t BaseNetWorkSession::GetHandShakeTimeOut()
 	return _handshaketimeOutMs;
 }
 
-void BaseNetWorkSession::RecvData(TCPEndPoint* client, Buffer* buffer)
+Task<void>  BaseNetWorkSession::RecvData(TCPEndPoint* client, Buffer* buffer)
 {
 	if (client != BaseClient)
-		return;
-	OnRecvData(buffer);
+		co_return;
+	co_await OnRecvData(buffer);
 }
 
-void BaseNetWorkSession::SessionClose(TCPEndPoint* client)
+Task<void>  BaseNetWorkSession::SessionClose(TCPEndPoint* client)
 {
 	if (client != BaseClient)
-		return;
-
-	OnSessionClose();
+		co_return;
+	co_await OnSessionClose();
 }
 
 TCPEndPoint* BaseNetWorkSession::GetBaseClient()
