@@ -60,7 +60,7 @@ bool TCPTransportConnection::Release()
 	}
 
 	{
-		std::lock_guard<CoroCriticalSectionLock> processlock(_ProcessLock);
+		LockGuard guard(_ProcessLock);
 		_callbackBuffer = nullptr;
 		Buffer* buf = nullptr;
 		while (_RecvDatas.dequeue(buf))
@@ -195,7 +195,7 @@ Task<void> TCPTransportConnection::OnREAD(BaseSocket socket, Buffer& buf)
 
 	_RecvDatas.enqueue(copybuf);
 
-	std::lock_guard<CoroCriticalSectionLock> processlock(_ProcessLock);
+	LockGuard guard(_ProcessLock);
 	co_await ProcessRecvQueue();
 	co_return;
 }

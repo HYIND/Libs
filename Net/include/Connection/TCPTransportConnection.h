@@ -6,6 +6,7 @@
 #pragma once
 
 #include "BaseTransportConnection.h"
+#include "SpinLock.h"
 
  // TCP传输层客户端(连接对象)
 class NET_API TCPTransportConnection : public BaseTransportConnection
@@ -51,7 +52,7 @@ private:
 	std::function<Task<void>(TCPTransportConnection*, Buffer*)> _callbackBuffer;
 	std::function<Task<void>(TCPTransportConnection*)> _callbackRDHUP;
 	CoroCriticalSectionLock _SendResMtx;
-	CoroCriticalSectionLock _ProcessLock;
+	SpinLock _ProcessLock;
 };
 
 
