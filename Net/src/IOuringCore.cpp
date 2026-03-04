@@ -702,9 +702,9 @@ uint32_t IOuringCoreProcessImpl::DynamicBufferState::GetDynamicSize()
 
 IOuringCoreProcessImpl::IOuringCoreProcessImpl()
     : _shouldshutdown(false),
-    _isinitsuccess(false),
-    _isrunning(false),
-    _ExcuteEventProcessPool(std::max((uint32_t)4, std::thread::hardware_concurrency()))
+      _isinitsuccess(false),
+      _isrunning(false),
+      _ExcuteEventProcessPool(std::max((uint32_t)4, std::thread::hardware_concurrency()))
 {
     memset(&ring, 0, sizeof(ring));
     int ret = io_uring_queue_init(ENTRIES, &ring, 0);
@@ -713,7 +713,7 @@ IOuringCoreProcessImpl::IOuringCoreProcessImpl()
         _isinitsuccess = false;
         perror("io_uring_queue_init fail!");
     }
-    else 
+    else
         _isinitsuccess = true;
 
     if (shutdown_eventfd < 0)
@@ -1291,14 +1291,14 @@ void IOuringCoreProcessImpl::DoPostIOEvents(std::vector<IOuringOPData *> opdatas
 void IOuringCoreProcessImpl::DoPostExcuteEvents(std::vector<std::shared_ptr<SequentialEventExecutor::ExcuteEvent>> &events)
 {
     auto task =
-        [this](std::shared_ptr<SequentialEventExecutor::ExcuteEvent> event) -> void
+        [this](std::shared_ptr<SequentialEventExecutor::ExcuteEvent> event) -> Task<void>
     {
         if (!event)
-            return;
+            co_return;
 
         auto iodata = event->weakdata.lock();
         if (!iodata)
-            return;
+            co_return;
 
         try
         {
@@ -1310,15 +1310,15 @@ void IOuringCoreProcessImpl::DoPostExcuteEvents(std::vector<std::shared_ptr<Sequ
                 if (event->type == SequentialEventExecutor::ExcuteEvent::EventType::READ_DATA)
                 {
                     Buffer &buf = *(event->data);
-                    connection->READ(connection->GetSocket(),
+                    co_await connection->READ(connection->GetSocket(),
                                      buf);
                 }
                 else if (event->type == SequentialEventExecutor::ExcuteEvent::EventType::ACCEPT_CONNECTION)
-                    connection->ACCEPT(connection->GetSocket(),
+                    co_await connection->ACCEPT(connection->GetSocket(),
                                        event->accept_info.client_fd, event->accept_info.client_addr);
                 else if (event->type == SequentialEventExecutor::ExcuteEvent::EventType::READ_HUP)
                 {
-                    connection->RDHUP();
+                    co_await connection->RDHUP();
                 }
             }
         }
@@ -1333,7 +1333,7 @@ void IOuringCoreProcessImpl::DoPostExcuteEvents(std::vector<std::shared_ptr<Sequ
     };
     for (auto event : events)
     {
-        _ExcuteEventProcessPool.submit(task, event);
+        CoroTask::Run(std::bind(task, event));
     }
 }
 
