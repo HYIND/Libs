@@ -244,7 +244,7 @@ Task<void> CustomTcpSession::OnRecvData(Buffer* buffer)
 			CustomPackage* newPak = cachePak;
 			cachePak = new CustomPackage();
 
-			std::lock_guard<SpinLock> lock(_ProcessLock);
+			LockGuard<SpinLock> lock(_ProcessLock);
 			co_await ProcessPakage(newPak);
 		}
 		else if (result == AnalysisResult::BufferAGAIN)

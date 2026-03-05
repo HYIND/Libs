@@ -415,7 +415,7 @@ void IOCPCoreProcessImpl::SequentialIOSubmitter::Release()
 {
 	_state = submitstate::none;
 
-	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+	LockGuard lock(_lock);
 	while (!_queue.empty())
 	{
 		IOCPOPData* opdata = nullptr;
@@ -435,7 +435,7 @@ void IOCPCoreProcessImpl::SequentialIOSubmitter::SubmitOPdata(IOCPOPData* opdata
 	if (_state == submitstate::none)
 		return;
 
-	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+	LockGuard lock(_lock);
 	if (_state == submitstate::none || !_weakdata.lock())
 		return;
 
@@ -455,7 +455,7 @@ void IOCPCoreProcessImpl::SequentialIOSubmitter::NotifyDone(IOCPOPData* opdata)
 	if (opdata->OP_Type != _type)
 		return;
 
-	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+	LockGuard lock(_lock);
 	if (_state == submitstate::none)
 		return;
 
@@ -481,7 +481,7 @@ void IOCPCoreProcessImpl::SequentialIOSubmitter::NotifyDone(IOCPOPData* opdata)
 
 void IOCPCoreProcessImpl::SequentialIOSubmitter::NotifyRetry(IOCPOPData* opdata)
 {
-	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+	LockGuard lock(_lock);
 
 	if (auto iodata = _weakdata.lock())
 	{
@@ -533,7 +533,7 @@ void IOCPCoreProcessImpl::SequentialIOSubmitter::GetPostIOEvent(std::vector<IOCP
 	if (_state != submitstate::idle)
 		return;
 
-	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+	LockGuard lock(_lock);
 	if (_state != submitstate::idle)
 		return;
 
@@ -620,7 +620,7 @@ IOCPCoreProcessImpl::SequentialEventExecutor::~SequentialEventExecutor()
 void IOCPCoreProcessImpl::SequentialEventExecutor::Release()
 {
 	_state = excutestate::none;
-	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+	LockGuard lock(_lock);
 	_queue.clear();
 }
 
@@ -631,7 +631,7 @@ void IOCPCoreProcessImpl::SequentialEventExecutor::SubmitExcuteEvent(std::shared
 	if (_state == excutestate::none)
 		return;
 
-	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+	LockGuard lock(_lock);
 	if (_state == excutestate::none || !_weakdata.lock())
 		return;
 
@@ -648,7 +648,7 @@ void IOCPCoreProcessImpl::SequentialEventExecutor::NotifyDone()
 	if (_state == excutestate::none)
 		return;
 
-	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+	LockGuard lock(_lock);
 	if (_state == excutestate::none)
 		return;
 
@@ -662,7 +662,7 @@ void IOCPCoreProcessImpl::SequentialEventExecutor::GetPostExcuteEvent(std::vecto
 	if (_state != excutestate::idle)
 		return;
 
-	std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+	LockGuard lock(_lock);
 	if (_state != excutestate::idle)
 		return;
 
@@ -1296,7 +1296,7 @@ int IOCPCoreProcessImpl::EventProcess(IOCPOPData* opdata, std::vector<IOCPOPData
 
 void IOCPCoreProcessImpl::DoPostIOEvents(std::vector<IOCPOPData*> opdatas)
 {
-	std::lock_guard<CoroCriticalSectionLock> lock(_doPostIOEventLock);
+	LockGuard lock(_doPostIOEventLock);
 
 	for (auto opdata : opdatas)
 	{

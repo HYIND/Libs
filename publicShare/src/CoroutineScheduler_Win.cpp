@@ -540,7 +540,7 @@ int CoroutineScheduler::EventProcess(Coro_IOCPOPData* opdata)
 
 void CoroutineScheduler::DoPostIOEvents(std::vector<Coro_IOCPOPData*>& opdatas)
 {
-	std::lock_guard<CriticalSectionLock> lock(_doPostIOEventLock);
+	LockGuard lock(_doPostIOEventLock);
 
 	for (auto opdata : opdatas)
 	{

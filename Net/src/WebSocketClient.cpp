@@ -99,7 +99,7 @@ Task<void> WebSocketClient::OnRecvBuffer(Buffer* buffer)
 				WebSocketPackage* newPak = cachePak;
 				cachePak = new WebSocketPackage();
 
-				std::lock_guard<SpinLock> lock(_ProcessLock);
+				LockGuard lock(_ProcessLock);
 				co_await ProcessPakage(newPak);
 			}
 		}
