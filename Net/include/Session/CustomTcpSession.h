@@ -48,7 +48,7 @@ public:
 	Task<std::shared_ptr<AwaitResult>> AwaitSend(Buffer buffer, std::chrono::milliseconds timeout = std::chrono::milliseconds(5 * 1000)); // 等待返回结果的发送，关心返回的结果
 	PureTCPClient* GetBaseClient();
 
-	void BindRecvRequestCallBack(std::function<Task<void>(BaseNetWorkSession*, Buffer* recv, Buffer* resp)> callback);
+	Task<void> BindRecvRequestCallBack(std::function<Task<void>(BaseNetWorkSession*, Buffer* recv, Buffer* resp)> callback);
 
 public:
 	virtual Task<bool> TryHandshake();
@@ -59,10 +59,10 @@ public:
 protected:
 	virtual Task<void> OnSessionClose();
 	virtual Task<void> OnRecvData(Buffer* buffer);
-	virtual void OnBindRecvDataCallBack();
-	virtual void OnBindSessionCloseCallBack();
+	virtual Task<void> OnBindRecvDataCallBack();
+	virtual Task<void> OnBindSessionCloseCallBack();
 
-	void OnBindRecvRequestCallBack();
+	Task<void> OnBindRecvRequestCallBack();
 
 private:
 	bool Send(const Buffer& buffer, int ack = -1); // 异步发送，不关心返回结果

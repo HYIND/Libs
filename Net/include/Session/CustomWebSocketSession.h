@@ -45,8 +45,8 @@ public:
 protected:
 	virtual Task<void> OnSessionClose();
 	virtual Task<void> OnRecvData(Buffer* buffer);
-	virtual void OnBindRecvDataCallBack();
-	virtual void OnBindSessionCloseCallBack();
+	virtual Task<void> OnBindRecvDataCallBack();
+	virtual Task<void> OnBindSessionCloseCallBack();
 
 private:
 	bool Send(const Buffer& buffer, int ack = -1);

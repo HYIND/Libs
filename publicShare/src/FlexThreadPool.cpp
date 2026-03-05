@@ -2,6 +2,13 @@
 #include <chrono>
 #include <assert.h>
 
+#ifdef max
+#undef max
+#endif
+#ifdef min
+#undef min
+#endif
+
 static int64_t GetTimeStampSecond()
 {
     auto now = std::chrono::system_clock::now();

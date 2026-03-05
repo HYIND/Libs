@@ -373,24 +373,25 @@ Task<void> CustomTcpSession::ProcessPakage(CustomPackage* newPak)
 	}
 }
 
-void CustomTcpSession::OnBindRecvDataCallBack()
+Task<void> CustomTcpSession::OnBindRecvDataCallBack()
 {
 	if (_ProcessLock.try_lock())
 	{
 		try
 		{
-			ProcessPakage().sync_wait();;
+			co_await ProcessPakage();
 		}
 		catch (const std::exception& e)
 		{
-			std::cerr << e.what() << '\n';
+			std::cerr << "CustomTcpSession::ProcessPakage" << e.what() << '\n';
 		}
 		_ProcessLock.unlock();
 	}
 }
 
-void CustomTcpSession::OnBindSessionCloseCallBack()
+Task<void> CustomTcpSession::OnBindSessionCloseCallBack()
 {
+	co_return;
 }
 
 Task<bool> CustomTcpSession::TryHandshake()
@@ -466,19 +467,19 @@ PureTCPClient* CustomTcpSession::GetBaseClient()
 	return (PureTCPClient*)BaseClient;
 }
 
-void CustomTcpSession::BindRecvRequestCallBack(std::function<Task<void>(BaseNetWorkSession*, Buffer* recv, Buffer* resp)> callback)
+Task<void> CustomTcpSession::BindRecvRequestCallBack(std::function<Task<void>(BaseNetWorkSession*, Buffer* recv, Buffer* resp)> callback)
 {
 	_callbackRecvRequest = callback;
-	OnBindRecvRequestCallBack();
+	co_await OnBindRecvRequestCallBack();
 }
 
-void CustomTcpSession::OnBindRecvRequestCallBack()
+Task<void> CustomTcpSession::OnBindRecvRequestCallBack()
 {
 	if (_ProcessLock.try_lock())
 	{
 		try
 		{
-			ProcessPakage().sync_wait();
+			co_await ProcessPakage();
 		}
 		catch (const std::exception& e)
 		{

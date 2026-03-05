@@ -60,13 +60,13 @@ Task<void> PureWebSocketSession::OnRecvData(Buffer* buffer)
 	co_return;
 }
 
-void PureWebSocketSession::OnBindRecvDataCallBack()
+Task<void> PureWebSocketSession::OnBindRecvDataCallBack()
 {
 	if (_ProcessLock.try_lock())
 	{
 		try
 		{
-			ProcessPakage().sync_wait();
+			co_await ProcessPakage();
 		}
 		catch (const std::exception& e)
 		{
@@ -77,9 +77,9 @@ void PureWebSocketSession::OnBindRecvDataCallBack()
 	}
 }
 
-void PureWebSocketSession::OnBindSessionCloseCallBack()
+Task<void> PureWebSocketSession::OnBindSessionCloseCallBack()
 {
-	return;
+	co_return;
 }
 
 Task<bool> PureWebSocketSession::TryHandshake()

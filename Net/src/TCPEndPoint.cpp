@@ -14,8 +14,8 @@ Task<bool> TCPEndPoint::Connect(std::string IP, uint16_t Port)
     if (!co_await BaseCon->Connect(IP, Port))
         co_return false;
 
-    BaseCon->BindBufferCallBack(std::bind(&TCPEndPoint::RecvBuffer, this, std::placeholders::_1, std::placeholders::_2));
-    BaseCon->BindRDHUPCallBack(std::bind(&TCPEndPoint::ConnectClose, this, std::placeholders::_1));
+    co_await BaseCon->BindRDHUPCallBack(std::bind(&TCPEndPoint::ConnectClose, this, std::placeholders::_1));
+    co_await BaseCon->BindBufferCallBack(std::bind(&TCPEndPoint::RecvBuffer, this, std::placeholders::_1, std::placeholders::_2));
 
     co_return true;
 }
@@ -30,15 +30,15 @@ bool TCPEndPoint::Release()
     _callbackClose = nullptr;
     return result;
 }
-void TCPEndPoint::BindMessageCallBack(std::function<Task<void>(TCPEndPoint *, Buffer *)> callback)
+Task<void> TCPEndPoint::BindMessageCallBack(std::function<Task<void>(TCPEndPoint *, Buffer *)> callback)
 {
     _callbackMessage = callback;
-    OnBindMessageCallBack();
+    co_await OnBindMessageCallBack();
 }
-void TCPEndPoint::BindCloseCallBack(std::function<Task<void>(TCPEndPoint *)> callback)
+Task<void> TCPEndPoint::BindCloseCallBack(std::function<Task<void>(TCPEndPoint *)> callback)
 {
     _callbackClose = callback;
-    OnBindCloseCallBack();
+    co_await OnBindCloseCallBack();
 }
 
 Task<void> TCPEndPoint::RecvBuffer(TCPTransportConnection *con, Buffer *buffer)

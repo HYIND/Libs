@@ -77,8 +77,8 @@ Task<void> NetWorkSessionListener::RecvClient(TCPEndPoint* waitClient)
 		PureTCPClient* TCPClient = (PureTCPClient*)waitClient;
 		BaseNetWorkSession* session = new CustomTcpSession(TCPClient);
 		waitSessions.emplace(std::make_shared<SessionData>(session));
-		TCPClient->BindMessageCallBack(std::bind(&NetWorkSessionListener::Handshake, this, std::placeholders::_1, std::placeholders::_2));
-		TCPClient->BindCloseCallBack(std::bind(&NetWorkSessionListener::ClientClose, this, std::placeholders::_1));
+		co_await TCPClient->BindCloseCallBack(std::bind(&NetWorkSessionListener::ClientClose, this, std::placeholders::_1));
+		co_await TCPClient->BindMessageCallBack(std::bind(&NetWorkSessionListener::Handshake, this, std::placeholders::_1, std::placeholders::_2));
 	}
 	break;
 	case SessionType::CustomWebSockectSession:
@@ -86,8 +86,8 @@ Task<void> NetWorkSessionListener::RecvClient(TCPEndPoint* waitClient)
 		WebSocketClient* WSClient = (WebSocketClient*)waitClient;
 		BaseNetWorkSession* session = new CustomWebSocketSession(WSClient);
 		waitSessions.emplace(std::make_shared<SessionData>(session));
-		WSClient->BindMessageCallBack(std::bind(&NetWorkSessionListener::Handshake, this, std::placeholders::_1, std::placeholders::_2));
-		WSClient->BindCloseCallBack(std::bind(&NetWorkSessionListener::ClientClose, this, std::placeholders::_1));
+		co_await WSClient->BindCloseCallBack(std::bind(&NetWorkSessionListener::ClientClose, this, std::placeholders::_1));
+		co_await WSClient->BindMessageCallBack(std::bind(&NetWorkSessionListener::Handshake, this, std::placeholders::_1, std::placeholders::_2));
 	}
 	break;
 	case SessionType::PureWebSocketSession:
@@ -95,8 +95,8 @@ Task<void> NetWorkSessionListener::RecvClient(TCPEndPoint* waitClient)
 		WebSocketClient* WSClient = (WebSocketClient*)waitClient;
 		BaseNetWorkSession* session = new PureWebSocketSession(WSClient);
 		waitSessions.emplace(std::make_shared<SessionData>(session));
-		WSClient->BindMessageCallBack(std::bind(&NetWorkSessionListener::Handshake, this, std::placeholders::_1, std::placeholders::_2));
-		WSClient->BindCloseCallBack(std::bind(&NetWorkSessionListener::ClientClose, this, std::placeholders::_1));
+		co_await WSClient->BindCloseCallBack(std::bind(&NetWorkSessionListener::ClientClose, this, std::placeholders::_1));
+		co_await WSClient->BindMessageCallBack(std::bind(&NetWorkSessionListener::Handshake, this, std::placeholders::_1, std::placeholders::_2));
 	}
 	break;
 	default:
@@ -108,8 +108,8 @@ Task<void> NetWorkSessionListener::RecvClient(TCPEndPoint* waitClient)
 
 Task<void> NetWorkSessionListener::ClientClose(TCPEndPoint* client)
 {
-	waitSessions.EnsureCall(
-		[&](std::vector<std::shared_ptr<SessionData>>& array) -> void
+	co_await waitSessions.AsyncEnsureCall(
+		[&](std::vector<std::shared_ptr<SessionData>>& array) -> Task<void>
 		{
 			for (auto it = array.begin(); it != array.end();)
 			{
@@ -126,7 +126,7 @@ Task<void> NetWorkSessionListener::ClientClose(TCPEndPoint* client)
 					session->Release();
 					array.erase(it);
 					DeleteLater(session);
-					return;
+					co_return;
 				}
 			}
 		});
@@ -135,8 +135,8 @@ Task<void> NetWorkSessionListener::ClientClose(TCPEndPoint* client)
 
 Task<void> NetWorkSessionListener::Handshake(TCPEndPoint* waitClient, Buffer* buf)
 {
-	waitSessions.EnsureCall(
-		[&](std::vector<std::shared_ptr<SessionData>>& array) -> void
+	co_await waitSessions.AsyncEnsureCall(
+		[&](std::vector<std::shared_ptr<SessionData>>& array) -> Task<void>
 		{
 			for (auto it = array.begin(); it != array.end();)
 			{
@@ -156,12 +156,12 @@ Task<void> NetWorkSessionListener::Handshake(TCPEndPoint* waitClient, Buffer* bu
 					if (result == CheckHandshakeStatus::Success)
 					{
 						if (_callBackSessionEstablish)
-							_callBackSessionEstablish(session).sync_wait();
+							co_await _callBackSessionEstablish(session);
 						array.erase(it);
-						waitClient->BindMessageCallBack(std::bind(&BaseNetWorkSession::RecvData, session, std::placeholders::_1, std::placeholders::_2));
-						waitClient->BindCloseCallBack(std::bind(&BaseNetWorkSession::SessionClose, session, std::placeholders::_1));
+						co_await waitClient->BindCloseCallBack(std::bind(&BaseNetWorkSession::SessionClose, session, std::placeholders::_1));
+						co_await waitClient->BindMessageCallBack(std::bind(&BaseNetWorkSession::RecvData, session, std::placeholders::_1, std::placeholders::_2));
 						if (buf->Remain() > 0)
-							session->RecvData(base, buf).sync_wait();
+							co_await session->RecvData(base, buf);
 					}
 					if (result == CheckHandshakeStatus::BufferAgain)
 					{
@@ -172,7 +172,7 @@ Task<void> NetWorkSessionListener::Handshake(TCPEndPoint* waitClient, Buffer* bu
 						array.erase(it);
 						DeleteLater(session);
 					}
-					return;
+					co_return;
 				}
 			}
 		});

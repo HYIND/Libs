@@ -60,13 +60,11 @@ public:
 		cout << "SessionEstablish:RemoteAddr=" << session->GetIPAddr()
 			<< ":" << session->GetPort() << " \n";
 
-		session->BindRecvDataCallBack(std::bind(&EchoServer::EchoMessage, this, placeholders::_1, placeholders::_2));
-		session->BindSessionCloseCallBack(std::bind(&EchoServer::PrintCloseConnect, this, placeholders::_1));
+		co_await session->BindRecvDataCallBack(std::bind(&EchoServer::EchoMessage, this, placeholders::_1, placeholders::_2));
+		co_await session->BindSessionCloseCallBack(std::bind(&EchoServer::PrintCloseConnect, this, placeholders::_1));
 
 		if (CustomTcpSession* customtcpsession = dynamic_cast<CustomTcpSession*>(session))
-		{
-			customtcpsession->BindRecvRequestCallBack(std::bind(&EchoServer::EchoRequestMessage, this, placeholders::_1, placeholders::_2, placeholders::_3));
-		}
+			co_await customtcpsession->BindRecvRequestCallBack(std::bind(&EchoServer::EchoRequestMessage, this, placeholders::_1, placeholders::_2, placeholders::_3));
 
 		sessions.emplace(session);
 		co_return;

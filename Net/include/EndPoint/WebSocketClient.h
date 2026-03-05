@@ -44,8 +44,8 @@ public:
 	virtual CheckHandshakeStatus CheckHandshakeConfirmMsg(Buffer& buffer);
 
 protected:
-	virtual void OnBindMessageCallBack();
-	virtual void OnBindCloseCallBack();
+	virtual Task<void> OnBindMessageCallBack();
+	virtual Task<void> OnBindCloseCallBack();
 
 private:
 	Task<void> ProcessPakage(WebSocketPackage* newpak = nullptr);

@@ -20,7 +20,8 @@ Task<bool> BaseNetWorkSession::Connect(std::string IP, uint16_t Port)
 	if (!result)
 		co_return false;
 
-	BaseClient->BindMessageCallBack(std::bind(&BaseNetWorkSession::RecvData, this, std::placeholders::_1, std::placeholders::_2));
+	co_await BaseClient->BindCloseCallBack(std::bind(&BaseNetWorkSession::SessionClose, this, std::placeholders::_1));
+	co_await BaseClient->BindMessageCallBack(std::bind(&BaseNetWorkSession::RecvData, this, std::placeholders::_1, std::placeholders::_2));
 	if (!co_await TryHandshake())
 	{
 		std::cout << "BaseNetWorkSession::ConnectAsync TryHandshake Connect Fail! CloseConnection\n";
@@ -28,7 +29,6 @@ Task<bool> BaseNetWorkSession::Connect(std::string IP, uint16_t Port)
 		co_return false;
 	}
 
-	BaseClient->BindCloseCallBack(std::bind(&BaseNetWorkSession::SessionClose, this, std::placeholders::_1));
 	co_return true;
 }
 
@@ -40,15 +40,15 @@ bool BaseNetWorkSession::Release()
 	return BaseClient->Release();
 }
 
-void BaseNetWorkSession::BindRecvDataCallBack(std::function<Task<void>(BaseNetWorkSession*, Buffer* recv)> callback)
+Task<void> BaseNetWorkSession::BindRecvDataCallBack(std::function<Task<void>(BaseNetWorkSession*, Buffer* recv)> callback)
 {
 	_callbackRecvData = callback;
-	OnBindRecvDataCallBack();
+	co_await OnBindRecvDataCallBack();
 }
-void BaseNetWorkSession::BindSessionCloseCallBack(std::function<Task<void>(BaseNetWorkSession*)> callback)
+Task<void> BaseNetWorkSession::BindSessionCloseCallBack(std::function<Task<void>(BaseNetWorkSession*)> callback)
 {
 	_callbackSessionClose = callback;
-	OnBindSessionCloseCallBack();
+	co_await OnBindSessionCloseCallBack();
 }
 
 char* BaseNetWorkSession::GetIPAddr()

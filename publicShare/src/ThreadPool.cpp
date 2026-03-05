@@ -1,6 +1,13 @@
 #include "ThreadPool.h"
 #include <assert.h>
 
+#ifdef max
+#undef max
+#endif
+#ifdef min
+#undef min
+#endif
+
 ThreadPool::ThreadData::ThreadTask::ThreadTask(std::function<void()> func)
     : func(func)
 {

@@ -110,15 +110,16 @@ CheckHandshakeStatus PureTCPClient::CheckHandshakeConfirmMsg(Buffer &buffer)
     return CheckHandshakeStatus::Success;
 }
 
-void PureTCPClient::OnBindMessageCallBack()
+Task<void> PureTCPClient::OnBindMessageCallBack()
 {
     if (_ProcessLock.try_lock())
     {
-        ProcessCacheBuffer().sync_wait();
+        co_await ProcessCacheBuffer();
         _ProcessLock.unlock();
     }
 }
 
-void PureTCPClient::OnBindCloseCallBack()
+Task<void> PureTCPClient::OnBindCloseCallBack()
 {
+    co_return;
 }

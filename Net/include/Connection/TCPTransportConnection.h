@@ -6,6 +6,7 @@
 #pragma once
 
 #include "BaseTransportConnection.h"
+#include "SafeStl.h"
 #include "SpinLock.h"
 
  // TCP传输层客户端(连接对象)
@@ -21,8 +22,8 @@ public:
 	bool Release();
 	bool Send(const Buffer& buffer);
 
-	void BindBufferCallBack(std::function<Task<void>(TCPTransportConnection*, Buffer*)> callback);
-	void BindRDHUPCallBack(std::function<Task<void>(TCPTransportConnection*)> callback);
+	Task<void> BindBufferCallBack(std::function<Task<void>(TCPTransportConnection*, Buffer*)> callback);
+	Task<void> BindRDHUPCallBack(std::function<Task<void>(TCPTransportConnection*)> callback);
 
 	SafeQueue<Buffer*, CoroCriticalSectionLock>& GetRecvData();
 	SafeQueue<Buffer*, CoroCriticalSectionLock>& GetSendData();
@@ -38,8 +39,8 @@ protected:
 	virtual Task<void> OnRDHUP();
 
 protected:
-	virtual void OnBindBufferCallBack();
-	virtual void OnBindRDHUPCallBack();
+	virtual Task<void> OnBindBufferCallBack();
+	virtual Task<void> OnBindRDHUPCallBack();
 
 private:
 	Task<void> ProcessRecvQueue();

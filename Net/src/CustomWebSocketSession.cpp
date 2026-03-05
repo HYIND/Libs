@@ -140,13 +140,13 @@ Task<void> CustomWebSocketSession::OnRecvData(Buffer *buffer)
     co_return;
 }
 
-void CustomWebSocketSession::OnBindRecvDataCallBack()
+Task<void> CustomWebSocketSession::OnBindRecvDataCallBack()
 {
     if (_ProcessLock.try_lock())
     {
         try
         {
-            ProcessPakage().sync_wait();
+            co_await ProcessPakage();
         }
         catch (const std::exception &e)
         {
@@ -157,9 +157,9 @@ void CustomWebSocketSession::OnBindRecvDataCallBack()
     }
 }
 
-void CustomWebSocketSession::OnBindSessionCloseCallBack()
+Task<void> CustomWebSocketSession::OnBindSessionCloseCallBack()
 {
-    return;
+    co_return;
 }
 
 Task<bool> CustomWebSocketSession::TryHandshake()

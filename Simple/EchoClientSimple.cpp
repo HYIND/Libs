@@ -86,9 +86,9 @@ public:
 
 		if (isconnected)
 		{
-			session->BindRecvDataCallBack(std::bind(&EchoClient::PrintMessage, this, std::placeholders::_1, std::placeholders::_2));
-			session->BindRecvRequestCallBack(std::bind(&EchoClient::PrintRequestMessage, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
-			session->BindSessionCloseCallBack(std::bind(&EchoClient::PrintCloseConnect, this, std::placeholders::_1));
+			session->BindRecvDataCallBack(std::bind(&EchoClient::PrintMessage, this, std::placeholders::_1, std::placeholders::_2)).sync_wait();
+			session->BindRecvRequestCallBack(std::bind(&EchoClient::PrintRequestMessage, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3)).sync_wait();
+			session->BindSessionCloseCallBack(std::bind(&EchoClient::PrintCloseConnect, this, std::placeholders::_1)).sync_wait();
 		}
 		return isconnected;
 	}

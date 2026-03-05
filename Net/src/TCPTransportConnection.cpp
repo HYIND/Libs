@@ -97,15 +97,15 @@ bool TCPTransportConnection::Send(const Buffer& buffer)
 	}
 }
 
-void TCPTransportConnection::BindBufferCallBack(function<Task<void>(TCPTransportConnection*, Buffer*)> callback)
+Task<void> TCPTransportConnection::BindBufferCallBack(function<Task<void>(TCPTransportConnection*, Buffer*)> callback)
 {
 	_callbackBuffer = callback;
-	OnBindBufferCallBack();
+	co_await OnBindBufferCallBack();
 }
-void TCPTransportConnection::BindRDHUPCallBack(function<Task<void>(TCPTransportConnection*)> callback)
+Task<void> TCPTransportConnection::BindRDHUPCallBack(function<Task<void>(TCPTransportConnection*)> callback)
 {
 	_callbackRDHUP = callback;
-	OnBindRDHUPCallBack();
+	co_await OnBindRDHUPCallBack();
 }
 SafeQueue<Buffer*, CoroCriticalSectionLock>& TCPTransportConnection::GetSendData() { return _SendDatas; }
 CoroCriticalSectionLock& TCPTransportConnection::GetSendMtx() { return _SendResMtx; }
@@ -202,17 +202,18 @@ Task<void> TCPTransportConnection::OnREAD(BaseSocket socket, Buffer& buf)
 
 Task<void> TCPTransportConnection::OnACCEPT(BaseSocket socket, BaseSocket newsocket, sockaddr_in addr) { co_return; }
 
-void TCPTransportConnection::OnBindBufferCallBack()
+Task<void> TCPTransportConnection::OnBindBufferCallBack()
 {
 	if (_ProcessLock.try_lock())
 	{
-		ProcessRecvQueue().sync_wait();
+		co_await ProcessRecvQueue();
 		_ProcessLock.unlock();
 	}
 }
 
-void TCPTransportConnection::OnBindRDHUPCallBack()
+Task<void> TCPTransportConnection::OnBindRDHUPCallBack()
 {
+	co_return;
 }
 
 Task<void> TCPTransportConnection::ProcessRecvQueue()

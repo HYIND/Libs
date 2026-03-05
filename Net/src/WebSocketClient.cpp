@@ -125,24 +125,25 @@ Task<void> WebSocketClient::OnConnectClose()
 	co_return;
 }
 
-void WebSocketClient::OnBindMessageCallBack()
+Task<void> WebSocketClient::OnBindMessageCallBack()
 {
 	if (_ProcessLock.try_lock())
 	{
 		try
 		{
-			ProcessPakage().sync_wait();
+			co_await ProcessPakage();
 		}
 		catch (const std::exception& e)
 		{
-			std::cerr << e.what() << '\n';
+			std::cerr << "WebSocketClient::ProcessPakage" << e.what() << '\n';
 		}
 		_ProcessLock.unlock();
 	}
 }
 
-void WebSocketClient::OnBindCloseCallBack()
+Task<void> WebSocketClient::OnBindCloseCallBack()
 {
+	co_return;
 }
 
 bool WebSocketClient::Send(const Buffer& buffer)

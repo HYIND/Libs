@@ -74,16 +74,16 @@ Task<void> TcpEndPointListener::RecvCon(std::shared_ptr<TCPTransportConnection> 
 
 		TCPEndPoint* client = new PureTCPClient(waitCon);
 		waitClients.emplace(std::make_shared<ClientData>(client));
-		waitCon->BindBufferCallBack(std::bind(&TcpEndPointListener::Handshake, this, std::placeholders::_1, std::placeholders::_2));
-		waitCon->BindRDHUPCallBack(std::bind(&TcpEndPointListener::ConClose, this, std::placeholders::_1));
+		co_await waitCon->BindRDHUPCallBack(std::bind(&TcpEndPointListener::ConClose, this, std::placeholders::_1));
+		co_await waitCon->BindBufferCallBack(std::bind(&TcpEndPointListener::Handshake, this, std::placeholders::_1, std::placeholders::_2));
 		break;
 	}
 	case TCPNetProtocol::WebSocket:
 	{
 		TCPEndPoint* client = new WebSocketClient(waitCon);
 		waitClients.emplace(std::make_shared<ClientData>(client));
-		waitCon->BindBufferCallBack(std::bind(&TcpEndPointListener::Handshake, this, std::placeholders::_1, std::placeholders::_2));
-		waitCon->BindRDHUPCallBack(std::bind(&TcpEndPointListener::ConClose, this, std::placeholders::_1));
+		co_await waitCon->BindRDHUPCallBack(std::bind(&TcpEndPointListener::ConClose, this, std::placeholders::_1));
+		co_await waitCon->BindBufferCallBack(std::bind(&TcpEndPointListener::Handshake, this, std::placeholders::_1, std::placeholders::_2));
 		break;
 	}
 	default:
@@ -95,8 +95,8 @@ Task<void> TcpEndPointListener::RecvCon(std::shared_ptr<TCPTransportConnection> 
 
 Task<void> TcpEndPointListener::ConClose(TCPTransportConnection* Con)
 {
-	waitClients.EnsureCall(
-		[&](std::vector<std::shared_ptr<ClientData>>& array) -> void
+	co_await waitClients.AsyncEnsureCall(
+		[&](std::vector<std::shared_ptr<ClientData>>& array) -> Task<void>
 		{
 			for (auto it = array.begin(); it != array.end();)
 			{
@@ -111,14 +111,15 @@ Task<void> TcpEndPointListener::ConClose(TCPTransportConnection* Con)
 				}
 				it++;
 			}
+			co_return;
 		});
 	co_return;
 }
 
 Task<void> TcpEndPointListener::Handshake(TCPTransportConnection* waitCon, Buffer* buf)
 {
-	waitClients.EnsureCall(
-		[&](std::vector<std::shared_ptr<ClientData>>& array) -> void
+	co_await waitClients.AsyncEnsureCall(
+		[&](std::vector<std::shared_ptr<ClientData>>& array) -> Task<void>
 		{
 			for (auto it = array.begin(); it != array.end();)
 			{
@@ -134,22 +135,22 @@ Task<void> TcpEndPointListener::Handshake(TCPTransportConnection* waitCon, Buffe
 				if (result == CheckHandshakeStatus::Success)
 				{
 					if (_callBackEstablish)
-						_callBackEstablish(client).sync_wait();
+						co_await _callBackEstablish(client);
 					array.erase(it);
-					waitCon->BindBufferCallBack(std::bind(&TCPEndPoint::RecvBuffer, client, std::placeholders::_1, std::placeholders::_2));
-					waitCon->BindRDHUPCallBack(std::bind(&TCPEndPoint::ConnectClose, client, std::placeholders::_1));
+					co_await waitCon->BindRDHUPCallBack(std::bind(&TCPEndPoint::ConnectClose, client, std::placeholders::_1));
+					co_await waitCon->BindBufferCallBack(std::bind(&TCPEndPoint::RecvBuffer, client, std::placeholders::_1, std::placeholders::_2));
 					if (buf->Remain() > 0)
-						client->RecvBuffer(waitCon, buf).sync_wait();
+						co_await client->RecvBuffer(waitCon, buf);
 				}
 				if (result == CheckHandshakeStatus::BufferAgain)
-					return;
+					co_return;
 				if (result == CheckHandshakeStatus::Fail)
 				{
 					client->Release();
 					array.erase(it);
 					DeleteLater(client);
 				}
-				return;
+				co_return;
 			}
 		});
 	co_return;
