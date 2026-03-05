@@ -379,7 +379,7 @@ void IOuringCoreProcessImpl::SequentialIOSubmitter::Release()
 {
     _state = submitstate::none;
 
-    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+    LockGuard lock(_lock);
     while (!_queue.empty())
     {
         IOuringOPData *opdata = nullptr;
@@ -399,7 +399,7 @@ void IOuringCoreProcessImpl::SequentialIOSubmitter::SubmitOPdata(IOuringOPData *
     if (_state == submitstate::none)
         return;
 
-    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+    LockGuard lock(_lock);
     if (_state == submitstate::none || !_weakdata.lock())
         return;
 
@@ -419,7 +419,7 @@ void IOuringCoreProcessImpl::SequentialIOSubmitter::NotifyDone(IOuringOPData *op
     if (opdata->OP_Type != _type)
         return;
 
-    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+    LockGuard lock(_lock);
     if (_state == submitstate::none)
         return;
 
@@ -445,7 +445,7 @@ void IOuringCoreProcessImpl::SequentialIOSubmitter::NotifyDone(IOuringOPData *op
 
 void IOuringCoreProcessImpl::SequentialIOSubmitter::NotifyRetry(IOuringOPData *opdata)
 {
-    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+    LockGuard lock(_lock);
 
     if (auto iodata = _weakdata.lock())
     {
@@ -497,7 +497,7 @@ void IOuringCoreProcessImpl::SequentialIOSubmitter::GetPostIOEvent(std::vector<I
     if (_state != submitstate::idle)
         return;
 
-    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+    LockGuard lock(_lock);
     if (_state != submitstate::idle)
         return;
 
@@ -584,7 +584,7 @@ IOuringCoreProcessImpl::SequentialEventExecutor::~SequentialEventExecutor()
 void IOuringCoreProcessImpl::SequentialEventExecutor::Release()
 {
     _state = excutestate::none;
-    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+    LockGuard lock(_lock);
     _queue.clear();
 }
 
@@ -595,7 +595,7 @@ void IOuringCoreProcessImpl::SequentialEventExecutor::SubmitExcuteEvent(std::sha
     if (_state == excutestate::none)
         return;
 
-    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+    LockGuard lock(_lock);
     if (_state == excutestate::none || !_weakdata.lock())
         return;
 
@@ -612,7 +612,7 @@ void IOuringCoreProcessImpl::SequentialEventExecutor::NotifyDone()
     if (_state == excutestate::none)
         return;
 
-    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+    LockGuard lock(_lock);
     if (_state == excutestate::none)
         return;
 
@@ -626,7 +626,7 @@ void IOuringCoreProcessImpl::SequentialEventExecutor::GetPostExcuteEvent(std::ve
     if (_state != excutestate::idle)
         return;
 
-    std::lock_guard<CoroCriticalSectionLock> lock(_lock);
+    LockGuard lock(_lock);
     if (_state != excutestate::idle)
         return;
 
@@ -1240,7 +1240,7 @@ int IOuringCoreProcessImpl::EventProcess(IOuringOPData *opdata, std::vector<IOur
 
 void IOuringCoreProcessImpl::DoPostIOEvents(std::vector<IOuringOPData *> opdatas)
 {
-    std::lock_guard<CoroCriticalSectionLock> lock(_doPostIOEventLock);
+    LockGuard lock(_doPostIOEventLock);
 
     for (auto opdata : opdatas)
     {

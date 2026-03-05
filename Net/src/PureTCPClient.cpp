@@ -37,7 +37,7 @@ Task<bool> PureTCPClient::Connect(std::string IP, uint16_t Port)
 
 bool PureTCPClient::Release()
 {
-    std::lock_guard<SpinLock> lock(_ProcessLock);
+    LockGuard lock(_ProcessLock);
     cacheBuffer.Release();
     return Base::Release();
 }
@@ -53,7 +53,7 @@ Task<void> PureTCPClient::OnRecvBuffer(Buffer *buffer)
     if (buffer->Remain() > 0)
         cacheBuffer.Append(*buffer);
 
-    std::lock_guard<SpinLock> lock(_ProcessLock);
+    LockGuard lock(_ProcessLock);
     co_await ProcessCacheBuffer();
 
     co_return;
