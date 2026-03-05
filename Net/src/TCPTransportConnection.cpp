@@ -184,7 +184,7 @@ Task<void> TCPTransportConnection::OnREAD(BaseSocket socket)
 	LockGuard processlock(_ProcessLock);
 	co_await ProcessRecvQueue();
 }
-Task<void> TCPTransportConnection::OnACCEPT(BaseSocket socket) {}
+Task<void> TCPTransportConnection::OnACCEPT(BaseSocket socket) {co_return;}
 #endif
 
 Task<void> TCPTransportConnection::OnREAD(BaseSocket socket, Buffer& buf)

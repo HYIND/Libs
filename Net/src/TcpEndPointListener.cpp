@@ -95,8 +95,8 @@ Task<void> TcpEndPointListener::RecvCon(std::shared_ptr<TCPTransportConnection> 
 
 Task<void> TcpEndPointListener::ConClose(TCPTransportConnection* Con)
 {
-	co_await waitClients.AsyncEnsureCall(
-		[&](std::vector<std::shared_ptr<ClientData>>& array) -> Task<void>
+	waitClients.EnsureCall(
+		[&](std::vector<std::shared_ptr<ClientData>>& array) -> void
 		{
 			for (auto it = array.begin(); it != array.end();)
 			{
@@ -111,15 +111,15 @@ Task<void> TcpEndPointListener::ConClose(TCPTransportConnection* Con)
 				}
 				it++;
 			}
-			co_return;
+			return;
 		});
 	co_return;
 }
 
 Task<void> TcpEndPointListener::Handshake(TCPTransportConnection* waitCon, Buffer* buf)
 {
-	co_await waitClients.AsyncEnsureCall(
-		[&](std::vector<std::shared_ptr<ClientData>>& array) -> Task<void>
+	waitClients.EnsureCall(
+		[&](std::vector<std::shared_ptr<ClientData>>& array) -> void
 		{
 			for (auto it = array.begin(); it != array.end();)
 			{
@@ -135,22 +135,22 @@ Task<void> TcpEndPointListener::Handshake(TCPTransportConnection* waitCon, Buffe
 				if (result == CheckHandshakeStatus::Success)
 				{
 					if (_callBackEstablish)
-						co_await _callBackEstablish(client);
+						_callBackEstablish(client).sync_wait();
 					array.erase(it);
-					co_await waitCon->BindRDHUPCallBack(std::bind(&TCPEndPoint::ConnectClose, client, std::placeholders::_1));
-					co_await waitCon->BindBufferCallBack(std::bind(&TCPEndPoint::RecvBuffer, client, std::placeholders::_1, std::placeholders::_2));
+					waitCon->BindRDHUPCallBack(std::bind(&TCPEndPoint::ConnectClose, client, std::placeholders::_1)).sync_wait();
+					waitCon->BindBufferCallBack(std::bind(&TCPEndPoint::RecvBuffer, client, std::placeholders::_1, std::placeholders::_2)).sync_wait();
 					if (buf->Remain() > 0)
-						co_await client->RecvBuffer(waitCon, buf);
+						client->RecvBuffer(waitCon, buf).sync_wait();
 				}
 				if (result == CheckHandshakeStatus::BufferAgain)
-					co_return;
+					return;
 				if (result == CheckHandshakeStatus::Fail)
 				{
 					client->Release();
 					array.erase(it);
 					DeleteLater(client);
 				}
-				co_return;
+				return;
 			}
 		});
 	co_return;

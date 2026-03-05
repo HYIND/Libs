@@ -108,8 +108,8 @@ Task<void> NetWorkSessionListener::RecvClient(TCPEndPoint* waitClient)
 
 Task<void> NetWorkSessionListener::ClientClose(TCPEndPoint* client)
 {
-	co_await waitSessions.AsyncEnsureCall(
-		[&](std::vector<std::shared_ptr<SessionData>>& array) -> Task<void>
+	waitSessions.EnsureCall(
+		[&](std::vector<std::shared_ptr<SessionData>>& array) -> void
 		{
 			for (auto it = array.begin(); it != array.end();)
 			{
@@ -126,7 +126,7 @@ Task<void> NetWorkSessionListener::ClientClose(TCPEndPoint* client)
 					session->Release();
 					array.erase(it);
 					DeleteLater(session);
-					co_return;
+					return;
 				}
 			}
 		});
@@ -135,8 +135,8 @@ Task<void> NetWorkSessionListener::ClientClose(TCPEndPoint* client)
 
 Task<void> NetWorkSessionListener::Handshake(TCPEndPoint* waitClient, Buffer* buf)
 {
-	co_await waitSessions.AsyncEnsureCall(
-		[&](std::vector<std::shared_ptr<SessionData>>& array) -> Task<void>
+	waitSessions.EnsureCall(
+		[&](std::vector<std::shared_ptr<SessionData>>& array) -> void
 		{
 			for (auto it = array.begin(); it != array.end();)
 			{
@@ -156,12 +156,12 @@ Task<void> NetWorkSessionListener::Handshake(TCPEndPoint* waitClient, Buffer* bu
 					if (result == CheckHandshakeStatus::Success)
 					{
 						if (_callBackSessionEstablish)
-							co_await _callBackSessionEstablish(session);
+						 	_callBackSessionEstablish(session).sync_wait();
 						array.erase(it);
-						co_await waitClient->BindCloseCallBack(std::bind(&BaseNetWorkSession::SessionClose, session, std::placeholders::_1));
-						co_await waitClient->BindMessageCallBack(std::bind(&BaseNetWorkSession::RecvData, session, std::placeholders::_1, std::placeholders::_2));
+						waitClient->BindCloseCallBack(std::bind(&BaseNetWorkSession::SessionClose, session, std::placeholders::_1)).sync_wait();
+						waitClient->BindMessageCallBack(std::bind(&BaseNetWorkSession::RecvData, session, std::placeholders::_1, std::placeholders::_2)).sync_wait();
 						if (buf->Remain() > 0)
-							co_await session->RecvData(base, buf);
+							session->RecvData(base, buf).sync_wait();
 					}
 					if (result == CheckHandshakeStatus::BufferAgain)
 					{
@@ -172,7 +172,7 @@ Task<void> NetWorkSessionListener::Handshake(TCPEndPoint* waitClient, Buffer* bu
 						array.erase(it);
 						DeleteLater(session);
 					}
-					co_return;
+					return;
 				}
 			}
 		});
