@@ -7,6 +7,7 @@
 #endif
 
 #include "SpinLock.h"
+#include "ThreadPool.h"
 
 using ContextData = std::unordered_map<std::string, std::shared_ptr<void>>;
 class PUBLICSHARE_API CoroutineContextImpl
@@ -420,4 +421,15 @@ void CoroCriticalSectionLock::unlock()
 		_status.thread_id = std::thread::id();
 		cv.NotifyOne();
 	}
+}
+
+
+bool Can_Yield()
+{
+	return ThreadPool::can_yield();
+}
+
+void Yield_Until(std::function<bool()> predicate)
+{
+	ThreadPool::yield_until(predicate);
 }
