@@ -8,6 +8,8 @@
 #undef min
 #endif
 
+thread_local ThreadPool* cur_thread_pool = nullptr;
+
 ThreadPool::ThreadData::ThreadTask::ThreadTask(std::function<void()> func)
     : func(func)
 {
@@ -161,6 +163,8 @@ ThreadPool::ThreadWorker::ThreadWorker(ThreadPool *pool, std::shared_ptr<ThreadD
 
 void ThreadPool::ThreadWorker::operator()()
 {
+    cur_thread_pool = m_pool;
+
     using ThreadTask = ThreadPool::ThreadData::ThreadTask;
 
     auto needstop = [this]() -> bool
@@ -192,6 +196,95 @@ void ThreadPool::ThreadWorker::operator()()
             if (m_data->queue.empty())
             {
                 m_data->queue_cv.Wait(guard);
+            }
+            if (needstop()) // 重新获取锁后检查一次
+            {
+                m_data->_stop.store(true);
+                return;
+            }
+            if (!m_data->queue.empty())
+            {
+                dequeued = m_data->queue.dequeue(task);
+                m_data->_is_idle = false;
+            }
+        }
+
+        if (dequeued && task)
+        {
+            assert(task->func);
+            task->func();
+        }
+        m_data->_is_idle = true;
+    }
+}
+
+bool ThreadPool::can_yield()
+{
+    return cur_thread_pool != nullptr;
+}
+
+void ThreadPool::yield_until(std::function<bool()> predicate)
+{
+    if (!can_yield())
+        return;
+
+    for (auto& data : cur_thread_pool->_threads)
+    {
+        if (data->thread.get_id() == std::this_thread::get_id())
+        {
+            YieldWorker(cur_thread_pool, data, predicate)();
+        }
+    }
+}
+
+ThreadPool::YieldWorker::YieldWorker(ThreadPool* pool, std::shared_ptr<ThreadData> data, std::function<bool()> predicate)
+    : m_pool(pool), m_data(data), m_predicate(predicate)
+{
+}
+
+void ThreadPool::YieldWorker::operator()()
+{
+    if (std::this_thread::get_id() != m_data->thread.get_id() || m_predicate == nullptr)
+        return;
+
+    m_data->_is_idle = true;
+
+    using ThreadTask = ThreadPool::ThreadData::ThreadTask;
+
+    auto needstop = [this]() -> bool
+        {
+            return (m_pool->_stop.load() || m_data->_stop.load()) && m_data->queue.empty();
+        };
+
+    bool dequeued;
+    while (true)
+    {
+        {
+            LockGuard guard(m_data->queue_mutex);
+            if (needstop())
+            {
+                m_data->_stop.store(true);
+                return;
+            }
+        }
+
+        dequeued = false;
+        std::unique_ptr<ThreadTask> task;
+        {
+            LockGuard guard(m_data->queue_mutex);
+            if (needstop()) // 获取锁后检查一次
+            {
+                m_data->_stop.store(true);
+                return;
+            }
+            if (m_data->queue.empty())
+            {
+                m_data->queue_cv.WaitFor(guard, std::chrono::milliseconds(5));
+                if (std::invoke(m_predicate))
+                {
+                    m_data->_is_idle = false;
+                    return;
+                }
             }
             if (needstop()) // 重新获取锁后检查一次
             {
