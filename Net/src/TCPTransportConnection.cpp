@@ -68,7 +68,7 @@ bool TCPTransportConnection::Release()
 	}
 	{
 
-		std::lock_guard<CoroCriticalSectionLock> sendlock(_SendResMtx);
+		LockGuard sendlock(_SendResMtx);
 		Buffer* buf = nullptr;
 		while (_SendDatas.dequeue(buf))
 			SAFE_DELETE(buf);
@@ -181,7 +181,7 @@ Task<void> TCPTransportConnection::OnREAD(BaseSocket socket)
 		recvcount--;
 	}
 
-	std::lock_guard<CoroCriticalSectionLock> processlock(_ProcessLock);
+	LockGuard processlock(_ProcessLock);
 	co_await ProcessRecvQueue();
 }
 Task<void> TCPTransportConnection::OnACCEPT(BaseSocket socket) {}
