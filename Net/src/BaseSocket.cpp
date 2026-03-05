@@ -10,3 +10,8 @@ bool CloseSocket(BaseSocket socket)
 	return closesocket(socket) != SOCKET_ERROR;
 #endif
 }
+
+bool IsInvaildSocket(BaseSocket socket)
+{
+	return socket <= Invaild_Socket;
+}

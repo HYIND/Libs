@@ -1100,7 +1100,7 @@ bool IOCPCoreProcessImpl::GetDoneIOEvents(std::vector<IOCPOPData*>& opdatas)
 						if (!remoteAddr || remoteAddrLen < sizeof(sockaddr_in)) //error
 						{
 							memset(&opdata->client_addr, 0, sizeof(sockaddr_in));
-							if (opdata->client_fd != Invaild_Socket)
+							if (!IsInvaildSocket(opdata->client_fd))
 							{
 								CloseSocket(opdata->client_fd);
 								opdata->client_fd = Invaild_Socket;
@@ -1424,7 +1424,7 @@ bool IOCPCoreProcessImpl::SubmitWriteEvent(IOCPOPData* opdata)
 {
 	if (auto Con = opdata->weakCon.lock())
 	{
-		if (opdata->fd == Invaild_Socket)
+		if (IsInvaildSocket(opdata->fd))
 			return false;
 
 		opdata->wsaBuf.buf = opdata->buffer.Byte() + opdata->buffer.Position();
@@ -1490,7 +1490,7 @@ bool IOCPCoreProcessImpl::SubmitWillWriteEvent(IOCPOPData* opdata)
 {
 	if (auto Con = opdata->weakCon.lock())
 	{
-		if (opdata->fd == Invaild_Socket)
+		if (IsInvaildSocket(opdata->fd))
 			return false;
 
 		assert(opdata->wsaBuf.len == 0);
