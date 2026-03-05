@@ -64,7 +64,7 @@ bool TCPTransportListener::Listen(const string& IP, int Port)
 		ReleaseListener();
 
 	BaseSocket socket = NewServerSocket(IP, Port, _type == SocketType::UDP ? SOCK_DGRAM : SOCK_STREAM, _addr);
-	if (socket == Invaild_Socket)
+	if (IsInvaildSocket(socket))
 	{
 		perror("Create fd error");
 		return false;
@@ -112,7 +112,7 @@ Task<void> TCPTransportListener::OnACCEPT(BaseSocket socket)
 			sockaddr_in addr;
 			socklen_t length = sizeof(sockaddr_in);
 			BaseSocket clientSocket = ::accept(this->_socket, (struct sockaddr*)&addr, &length);
-			if (clientSocket > Invaild_Socket)
+			if (!IsInvaildSocket(clientSocket))
 			{
 				std::shared_ptr<TCPTransportConnection> client = std::make_shared<TCPTransportConnection>();
 				client->Apply(clientSocket, addr, this->_type);
