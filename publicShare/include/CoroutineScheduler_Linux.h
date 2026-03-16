@@ -6,6 +6,14 @@
 
 struct Coro_IOuringOPData;
 
+struct TaskHandle
+{
+    std::coroutine_handle<> coroutine;
+
+    TaskHandle(std::coroutine_handle<> coroutine);
+    ~TaskHandle();
+};
+
 class CoroutineScheduler
 {
 public:
