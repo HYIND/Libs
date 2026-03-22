@@ -38,7 +38,8 @@ void Level::addTimer(int64_t id, int64_t expiretime, std::shared_ptr<TimerTaskHa
 	LockGuard lock(mutex);
 
 	int64_t remaining = expiretime - TimeWheel::GetTimestampMilliseconds();
-	int64_t expire_ticks = current_tick + std::max(int64_t(0), (remaining / tick_ms)) + 1;
+	int64_t next_tick = current_tick + 1;	//下一个立马要执行的tick
+	int64_t expire_ticks = next_tick + std::max(int64_t(0), (remaining / tick_ms)) + 1;	//最少间隔1个tick
 	uint32_t slot = expire_ticks % slot_count;
 	slots[slot].insert(slots[slot].end(), new TimerNode(id, expiretime, handle));
 	//std::cout << "addTimer slot = " << slot << '\n';
@@ -52,7 +53,8 @@ void Level::addTimer(TimerNode* node)
 	LockGuard lock(mutex);
 
 	int64_t remaining = node->expire_time - TimeWheel::GetTimestampMilliseconds();
-	int64_t expire_ticks = current_tick + std::max(int64_t(0), (remaining / tick_ms)) + 1;
+	int64_t next_tick = current_tick + 1;	//下一个立马要执行的tick
+	int64_t expire_ticks = next_tick + std::max(int64_t(0), (remaining / tick_ms)) + 1;	//最少间隔1个tick
 	uint32_t slot = expire_ticks % slot_count;
 	slots[slot].insert(slots[slot].end(), node);
 	//std::cout << "addTimer TimerNode slot = " << slot << '\n';
