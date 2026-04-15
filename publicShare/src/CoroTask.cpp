@@ -25,7 +25,6 @@ public:
 	static void clearParent(CoroHandle child);
 	static bool isAncestor(CoroHandle descendant, CoroHandle ancestor);
 	static bool isAncestor(CoroHandle descendant, std::thread::id threadid);
-	static void clearSyncWaitChild(CoroHandle child);
 	static void printAncestorLink(CoroHandle coro);
 	static void printCurrentAncestorLink();
 
@@ -371,19 +370,32 @@ void CoroCriticalSectionLock::lock()
 	int count = 1000;	//快速检查1000次
 	do
 	{
-		std::this_thread::yield();
 		if (try_lock())
 			return;
 		count--;
+		std::this_thread::yield();
 	} while (count > 0);
 
-
-	while (true)
+	// 如果是协程线程，则让出等待，防止协程线程阻塞
+	if (CoroutineContext::isCoroutineThread() && Can_Yield())
 	{
-		LockGuard guard(mutex);
-		cv.WaitFor(guard, std::chrono::milliseconds(200));
-		if (try_lock())
-			return;
+		auto current = CoroutineContext::getCurrent();
+		auto predicate = [&current, this]()->bool {
+			CoroutineContext::setCurrent(current);
+			return try_lock();
+			};
+		Yield_Until(predicate);
+		CoroutineContext::setCurrent(current);
+	}
+	else
+	{
+		while (true)
+		{
+			LockGuard guard(mutex);
+			cv.WaitFor(guard, std::chrono::milliseconds(50));
+			if (try_lock())
+				return;
+		}
 	}
 }
 
