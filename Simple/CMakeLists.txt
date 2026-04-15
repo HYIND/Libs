@@ -16,7 +16,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../Net/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../publicShare/include)
 
 IF(CMAKE_SYSTEM_NAME MATCHES "Linux")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread -lfmt -pthread")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread -pthread")
 ENDIF()
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
@@ -45,7 +45,7 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
         message(WARNING "uring library not found!")
     endif()
 
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread -lfmt -fpermissive -fcoroutines -g")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread -fpermissive -fcoroutines -g")
 endif()
 
 

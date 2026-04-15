@@ -55,7 +55,7 @@ endif()
 ADD_LIBRARY(public SHARED ${ALL_SRC_FILES})
 
 IF(CMAKE_SYSTEM_NAME MATCHES "Linux")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread -lfmt")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lpthread")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoroutines")
     IF(Mysql_ON)
         target_link_libraries(public libmysqlclient.so)
