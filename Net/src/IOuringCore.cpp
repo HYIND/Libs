@@ -1138,7 +1138,7 @@ int IOuringCoreProcessImpl::EventProcess(IOuringOPData *opdata, std::vector<IOur
         }
     }
 
-    if (res == 0) // res==0连接正常断开
+    if (res == 0 && OP_Type != IOUring_OPType::OP_WILLWRITE) // res==0连接正常断开
     {
         std::shared_ptr<NetCore_IOuringData> iodata;
         if (_IOUringData.Find(Con.get(), iodata) && iodata && iodata->recver)
