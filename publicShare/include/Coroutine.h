@@ -92,6 +92,14 @@ public:
 	yieldAwaiter operator co_await();
 };
 
+struct PUBLICSHARE_API TaskHandle
+{
+	std::coroutine_handle<> coroutine;
+
+	TaskHandle(std::coroutine_handle<> coroutine);
+	~TaskHandle();
+};
+
 template <typename T>
 class Task;
 template <typename T>

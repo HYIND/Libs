@@ -80,10 +80,24 @@ public:
 				if (status == std::future_status::timeout)
 				{
 					if (taskliveflag.expired())
-						throw std::runtime_error("FlexThreadPool is force stopped!");
-					continue;
+					{
+						if (fut.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+						{
+							try
+							{
+								return fut.get();
+							}
+							catch (...)
+							{
+								throw;
+							}
+						}
+						else
+							throw std::runtime_error("FlexThreadPool is force stopped!");
+					}
 				}
-				throw std::runtime_error("Task future_status error!");
+				else
+					throw std::runtime_error("Task future_status error!");
 			}
 		}
 
@@ -108,7 +122,7 @@ public:
 						throw;
 					}
 				}
-				if (status == std::future_status::timeout)
+				else
 					throw std::runtime_error("FlexThreadPool is force stopped!");
 			}
 
@@ -127,7 +141,22 @@ public:
 			if (status == std::future_status::timeout)
 			{
 				if (taskliveflag.expired())
-					throw std::runtime_error("FlexThreadPool is force stopped!");
+				{
+					auto status = fut.wait_for(std::chrono::seconds(0));
+					if (status == std::future_status::ready)
+					{
+						try
+						{
+							return fut.get();
+						}
+						catch (...)
+						{
+							throw;
+						}
+					}
+					else
+						throw std::runtime_error("FlexThreadPool is force stopped!");
+				}
 				throw std::runtime_error("Task timeout");
 			}
 			throw std::runtime_error("Task future_status error!");
@@ -144,7 +173,7 @@ public:
 				auto status = fut.wait_for(std::chrono::seconds(0));
 				if (status == std::future_status::ready)
 					return true;
-				if (status == std::future_status::timeout)
+				else
 					throw std::runtime_error("FlexThreadPool is force stopped!");
 			}
 
@@ -154,7 +183,13 @@ public:
 			if (status == std::future_status::timeout)
 			{
 				if (taskliveflag.expired())
-					throw std::runtime_error("FlexThreadPool is force stopped!");
+				{
+					auto status = fut.wait_for(std::chrono::seconds(0));
+					if (status == std::future_status::ready)
+						return true;
+					else
+						throw std::runtime_error("FlexThreadPool is force stopped!");
+				}
 				return false;
 			}
 			throw std::runtime_error("Task future_status error!");
