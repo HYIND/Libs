@@ -15,7 +15,9 @@
 
 #pragma comment(lib, "winmm.lib")
 
-class HighPrecisionTimer
+#include "PublicShareExportMacro.h"
+
+class PUBLICSHARE_API HighPrecisionTimer
 {
 private:
 	// 定时器请求结构
@@ -70,7 +72,10 @@ public:
 
 #elif __linux__
 #include<cstdint> 
-class HighPrecisionTimer
+
+#include "PublicShareExportMacro.h"
+
+class PUBLICSHARE_API HighPrecisionTimer
 {
 public:
 	static bool Initialize();	// 初始化定时器系统
